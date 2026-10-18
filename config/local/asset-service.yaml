@@ -30,3 +30,13 @@ nats:
 
 auth:
   public_key_path: keys/public.pem
+
+service:
+  events:
+    streams:
+      - name: USERS
+        subjects: ["user.>"]
+    consumers:
+      - name: asset-service-user-created
+        stream: USERS
+        subject: user.created

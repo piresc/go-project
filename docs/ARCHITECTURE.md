@@ -44,7 +44,7 @@ Design rules:
 
 | Subject | Publisher | Consumer | Payload |
 |---------|-----------|----------|---------|
-| `user.created` | user-service | asset-service | `{user_id, email, role}` |
+| `user.created` | user-service | asset-service (durable consumer `asset-service-user-created` on stream `USERS`; creates the user's portfolio exactly once) | `{user_id, email, role}` |
 
 ## Caching Strategy (Redis)
 

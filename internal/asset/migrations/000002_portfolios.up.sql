@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS portfolios (
+    user_id    UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
