@@ -72,7 +72,7 @@ services:
       redis:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
 
   # asset-service:
   #   build:
@@ -101,7 +101,7 @@ services:
   #     redis:
   #       condition: service_healthy
   #     nats:
-  #       condition: service_started
+  #       condition: service_healthy
 
   # price-service:
   #   build:
@@ -122,7 +122,7 @@ services:
   #     redis:
   #       condition: service_healthy
   #     nats:
-  #       condition: service_started
+  #       condition: service_healthy
 
   postgres:
     build:
@@ -154,12 +154,23 @@ services:
       retries: 5
 
   nats:
-    image: nats:2.12.0
+    image: nats:2.12.0-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
     restart: unless-stopped
+    volumes:
+      - nats_data:/data
     expose:
       - "4222"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz?js-enabled-only=true"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
+  nats_data:
+    # Do not rename: renaming starts the app with empty streams.
+    name: ${APP_NAME:-go-project}-nats-data
   postgres_data:
     # Do not rename: renaming starts the app with a fresh empty database.
     name: ${APP_NAME:-go-project}-postgres-data

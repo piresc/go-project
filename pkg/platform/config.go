@@ -3,7 +3,8 @@ package platform
 // Settings are the platform-level options every service can set under the
 // "service:" key of its YAML config, next to the service's own fields.
 type Settings struct {
-	Auth AuthSettings `yaml:"auth" mapstructure:"auth"`
+	Auth   AuthSettings   `yaml:"auth" mapstructure:"auth"`
+	Events EventsSettings `yaml:"events" mapstructure:"events"`
 }
 
 // AuthSettings tunes the token middleware.

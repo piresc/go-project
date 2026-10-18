@@ -39,6 +39,8 @@ type App[S any] struct {
 	OptionalAuth func(http.Handler) http.Handler
 	// Revocations checks and records revoked token IDs. Nil without Redis.
 	Revocations *auth.RedisRevocationStore
+	// Events publishes and consumes JetStream events. Nil without NATS.
+	Events *Events
 
 	mu      sync.Mutex
 	starts  []func(context.Context) error
@@ -94,7 +96,28 @@ func (a *App[S]) setup(name string, o *options) error {
 			return fmt.Errorf("migrations: %w", err)
 		}
 	}
-	return a.initAuth(name)
+	if err := a.initAuth(name); err != nil {
+		return err
+	}
+	return a.initEvents()
+}
+
+// initEvents builds Events when NATS is connected and ties its lifecycle to
+// the app. Consumers stop last of the platform hooks, after later workers.
+func (a *App[S]) initEvents() error {
+	if a.NATSClient == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+	defer cancel()
+	ev, err := NewEvents(ctx, a.NATSClient, a.Logger, a.Settings.Events)
+	if err != nil {
+		return fmt.Errorf("events: %w", err)
+	}
+	a.Events = ev
+	a.onStop(ev.stop)
+	a.onStart(ev.start)
+	return nil
 }
 
 // has reports whether the dependency was configured and connected.
@@ -104,9 +127,9 @@ func (a *App[S]) has(d Dependency) bool {
 		return a.DB != nil
 	case Redis:
 		return a.Redis != nil
-	case Events:
+	case NATS:
 		return a.NATSClient != nil
-	case Tasks:
+	case Asynq:
 		return a.AsynqClient != nil
 	case AuthKeys:
 		return a.keyConfigured()

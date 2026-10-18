@@ -32,7 +32,7 @@ type App struct {
 // New loads configuration, runs migrations and wires routes.
 func New() (*App, error) {
 	app, err := platform.New[Config](serviceName,
-		platform.Require(platform.Postgres, platform.Redis, platform.Events, platform.AuthKeys),
+		platform.Require(platform.Postgres, platform.Redis, platform.NATS, platform.AuthKeys),
 		platform.WithMigrations(migrations.FS, "."),
 	)
 	if err != nil {
@@ -74,7 +74,7 @@ func New() (*App, error) {
 
 	repo := postgres.NewUserRepository(app.DB)
 	userCache := cache.NewRedisCache(app.Redis)
-	publisher := messaging.NewNATSPublisher(app.NATSClient)
+	publisher := messaging.NewNATSPublisher(app.Events)
 
 	authUC := usecase.NewAuthUseCase(repo, userCache, app.Revocations, publisher, google, apple, tokens, cfg.Auth.AccessTTL, app.Logger)
 	userUC := usecase.NewUserUseCase(repo, userCache, app.Logger)

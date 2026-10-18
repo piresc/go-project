@@ -37,3 +37,7 @@ auth:
 service:
   google_client_id: ""
   apple_client_id: ""
+  events:
+    streams:
+      - name: USERS
+        subjects: ["user.>"]

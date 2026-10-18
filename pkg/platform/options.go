@@ -12,8 +12,8 @@ type Dependency int
 const (
 	Postgres Dependency = iota + 1
 	Redis
-	Events
-	Tasks
+	NATS
+	Asynq
 	AuthKeys
 )
 
@@ -23,10 +23,10 @@ func (d Dependency) String() string {
 		return "postgres"
 	case Redis:
 		return "redis"
-	case Events:
-		return "events"
-	case Tasks:
-		return "tasks"
+	case NATS:
+		return "nats"
+	case Asynq:
+		return "asynq"
 	case AuthKeys:
 		return "auth keys"
 	default:
@@ -41,9 +41,9 @@ func (d Dependency) hint() string {
 		return "set database.host"
 	case Redis:
 		return "set redis.host"
-	case Events:
+	case NATS:
 		return "set nats.enabled and nats.url"
-	case Tasks:
+	case Asynq:
 		return "set asynq.enabled"
 	case AuthKeys:
 		return "set auth.public_key_path or JWT_PUBLIC_KEY_PEM"
