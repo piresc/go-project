@@ -3,7 +3,7 @@
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing code. It defines the service layout, layering rules and event table.
 
 Quick rules:
-- One Go module per service under `services/`, tied together by the root `go.work`.
+- One Go module at the repo root (`github.com/piresc/go-project`). Services are `cmd/<service>/main.go` plus `internal/<svc>/`.
 - Build on `github.com/piresc/gokit` (bootstrap, middleware, response, auth). No Google Wire, no chi.
 - Log with the `slog` logger from bootstrap, never `log.Printf`.
 - Respond with `response.Success` / `response.Error`.

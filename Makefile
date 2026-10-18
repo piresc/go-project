@@ -1,30 +1,20 @@
-SERVICES := asset-service price-service user-service
-
 .PHONY: test vet lint build keys up down seed e2e
 
 test:
-	@for s in $(SERVICES); do \
-		echo "==> test $$s"; \
-		(cd services/$$s && go test -race -count=1 ./...) || exit 1; \
-	done
+	go test -race -count=1 ./...
 
 vet:
-	@for s in $(SERVICES); do \
-		echo "==> vet $$s"; \
-		(cd services/$$s && go vet ./...) || exit 1; \
-	done
+	go vet ./...
 
 lint:
-	@for s in $(SERVICES); do \
-		echo "==> lint $$s"; \
-		(cd services/$$s && golangci-lint run) || exit 1; \
-	done
+	golangci-lint run ./...
 
 build:
 	@mkdir -p bin
-	@for s in $(SERVICES); do \
+	@for d in cmd/*; do \
+		s=$$(basename $$d); \
 		echo "==> build $$s"; \
-		(cd services/$$s && go build -o ../../bin/$$s ./cmd/server) || exit 1; \
+		go build -o bin/$$s ./$$d || exit 1; \
 	done
 
 keys:

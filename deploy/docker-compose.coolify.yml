@@ -36,7 +36,11 @@ services:
 
   user-service:
     build:
-      context: ./services/user-service
+      context: .
+      dockerfile: deploy/Dockerfile
+      args:
+        SERVICE: user-service
+        PORT: 8084
     restart: unless-stopped
     environment:
       DB_HOST: postgres
@@ -72,7 +76,11 @@ services:
 
   # asset-service:
   #   build:
-  #     context: ./services/asset-service
+  #     context: .
+  #     dockerfile: deploy/Dockerfile
+  #     args:
+  #       SERVICE: asset-service
+  #       PORT: 8082
   #   restart: unless-stopped
   #   environment:
   #     DB_HOST: postgres
@@ -97,7 +105,11 @@ services:
 
   # price-service:
   #   build:
-  #     context: ./services/price-service
+  #     context: .
+  #     dockerfile: deploy/Dockerfile
+  #     args:
+  #       SERVICE: price-service
+  #       PORT: 8083
   #   restart: unless-stopped
   #   environment:
   #     REDIS_HOST: redis

@@ -1,7 +1,0 @@
-.env
-config/.env
-*.pem
-server
-*.out
-*.cov
-coverage*

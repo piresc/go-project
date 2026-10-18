@@ -12,7 +12,7 @@ go-project is a set of independent Go services built on `github.com/piresc/gokit
 | **asset-service** | Asset CRUD | 8082 | Postgres |
 | **price-service** | Prices, top performers | 8083 | None (Redis only) |
 
-Each service is an independent Go module (`services/<name>/go.mod`) with its own `internal/` tree. The root `go.work` ties the modules together for local development.
+All services share one Go module (`go.mod` at the repo root). Each has an entrypoint under `cmd/<name>-service/` and its own tree under `internal/<svc>/` (`user`, `asset`, `price`). One `deploy/Dockerfile` builds any service via the `SERVICE` and `PORT` build args.
 
 ## Auth
 
@@ -21,14 +21,16 @@ Tokens are RS256 JWTs. user-service signs them with the private key; every other
 ## Internal Layering (per service)
 
 ```
-cmd/server/     main.go: thin entrypoint
-internal/
+cmd/<name>-service/  main.go: thin entrypoint
+config/<env>/        <name>-service.yaml per environment
+internal/<svc>/
   app/          Config, hand wiring on top of gokit bootstrap, lifecycle
   domain/       Core entities, value objects, validation
   usecase/      Business logic, port interfaces, typed errors
   repository/   Postgres adapters implementing repository ports
   gateway/      Redis, NATS, market-data adapters
   handler/http/ HTTP transport: routes, DTOs, error mapping
+  migrations/   Embedded SQL (services with a database)
 ```
 
 Design rules:
@@ -36,7 +38,7 @@ Design rules:
 - **Ports live in `usecase/ports.go`**: use cases depend on interfaces defined there.
 - **Adapters implement ports**: repositories and gateways are easy to substitute in tests.
 - **Hand wiring in `internal/app` on top of gokit bootstrap**: `New()` calls `bootstrap.NewHTTPService[Config]`, builds adapters and use cases, and registers routes. No code generation.
-- **`cmd/server/main.go` is thin**: it calls `app.New()` then `Run()` and exits non-zero on error.
+- **`cmd/<name>-service/main.go` is thin**: it calls `app.New()` then `Run()` and exits non-zero on error.
 
 ## Event Bus (NATS)
 
@@ -52,13 +54,14 @@ Design rules:
 
 ## Migrations
 
-Services with a database embed their SQL in `migrations/` (`embed.FS`) and apply them at boot with `bootstrap.RunMigrations`.
+Services with a database embed their SQL in `internal/<svc>/migrations/` (`embed.FS`) and apply them at boot with `bootstrap.RunMigrations`.
 
 ## Key Source Files
 
 | File | Purpose |
 |------|---------|
-| `go.work` | Workspace of all service modules |
-| `services/*/internal/app/app.go` | Wiring per service |
-| `services/*/cmd/server/main.go` | Service entrypoints |
-| `services/*/config/<env>/*.yaml` | Per-environment configuration |
+| `go.mod` | The single module for all services |
+| `internal/*/app/app.go` | Wiring per service |
+| `cmd/*/main.go` | Service entrypoints |
+| `config/<env>/*.yaml` | Per-environment configuration |
+| `deploy/Dockerfile` | Shared service image (`SERVICE`, `PORT` args) |

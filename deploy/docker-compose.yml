@@ -15,8 +15,13 @@ services:
 
   user-service:
     build:
-      context: ../services/user-service
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        SERVICE: user-service
+        PORT: 8084
     environment:
+      APP_ENV: local
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USERNAME: ${POSTGRES_USER:-postgres}
@@ -52,8 +57,13 @@ services:
 
   # asset-service:
   #   build:
-  #     context: ../services/asset-service
+  #     context: ..
+  #     dockerfile: deploy/Dockerfile
+  #     args:
+  #       SERVICE: asset-service
+  #       PORT: 8082
   #   environment:
+  #     APP_ENV: local
   #     DB_HOST: postgres
   #     DB_PORT: 5432
   #     DB_USERNAME: ${POSTGRES_USER:-postgres}
@@ -78,8 +88,13 @@ services:
 
   # price-service:
   #   build:
-  #     context: ../services/price-service
+  #     context: ..
+  #     dockerfile: deploy/Dockerfile
+  #     args:
+  #       SERVICE: price-service
+  #       PORT: 8083
   #   environment:
+  #     APP_ENV: local
   #     REDIS_HOST: redis
   #     REDIS_PORT: 6379
   #     NATS_URL: nats://nats:4222

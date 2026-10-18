@@ -1,6 +1,6 @@
 # go-project
 
-A Go multi-service boilerplate built on [`github.com/piresc/gokit`](https://github.com/piresc/gokit). Each service is its own Go module under `services/`, joined by a root `go.work`. Services share one layout: thin `cmd/server/main.go`, hand wiring in `internal/app`, and clean layers beneath it (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
+A Go multi-service boilerplate built on [`github.com/piresc/gokit`](https://github.com/piresc/gokit). All services live in one Go module (`github.com/piresc/go-project`). Services share one layout: a thin `cmd/<service>/main.go`, hand wiring in `internal/<svc>/app`, and clean layers beneath it (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
 
 ## Services
 
@@ -12,11 +12,11 @@ A Go multi-service boilerplate built on [`github.com/piresc/gokit`](https://gith
 
 ## Start a new service
 
-1. Copy `services/asset-service` (or `price-service` if it has no database) to `services/<name>`.
-2. Change the module path in `go.mod` to `github.com/piresc/go-project/services/<name>` and fix imports.
-3. Rename the service in `internal/app/app.go` and `config/*/<name>.yaml`, and set a free port.
-4. Add `./services/<name>` to `go.work` and to `SERVICES` in the `Makefile`.
-5. Run `go mod tidy` in the new module.
+1. Copy `internal/asset` (or `internal/price` if it has no database) to `internal/<svc>`, and `cmd/<same>-service` to `cmd/<name>-service`.
+2. Fix the imports to `github.com/piresc/go-project/internal/<svc>/...`.
+3. Rename the service in `internal/<svc>/app/app.go` and add `config/{local,production}/<name>-service.yaml` with a free port.
+4. Add a service block to the compose files using `deploy/Dockerfile` with `SERVICE` and `PORT` build args. `make build` picks up `cmd/*` automatically.
+5. Run `go mod tidy` at the repo root.
 
 ## Run locally
 

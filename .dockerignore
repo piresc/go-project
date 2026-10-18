@@ -1,6 +1,6 @@
 .git
-.env
-*.pem
+**/.env
+**/*.pem
 keys/
 bin/
 *.out
