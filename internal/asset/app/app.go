@@ -1,58 +1,35 @@
-// Package app wires the asset-service on top of gokit bootstrap.
+// Package app wires the asset-service on top of pkg/platform.
 package app
 
 import (
-	"errors"
-	"fmt"
-
-	"github.com/piresc/gokit/auth"
-	"github.com/piresc/gokit/bootstrap"
-	"github.com/piresc/gokit/middleware"
-
 	httptransport "github.com/piresc/go-project/internal/asset/handler/http"
 	"github.com/piresc/go-project/internal/asset/migrations"
 	"github.com/piresc/go-project/internal/asset/repository/postgres"
 	"github.com/piresc/go-project/internal/asset/usecase"
+	"github.com/piresc/go-project/pkg/platform"
 )
 
 const serviceName = "asset-service"
 
 // App is the assembled asset-service.
 type App struct {
-	app *bootstrap.HTTPApp[Config]
+	app *platform.App[Config]
 }
 
 // New loads configuration, runs migrations and wires routes.
 func New() (*App, error) {
-	app, err := bootstrap.NewHTTPService[Config](serviceName)
+	app, err := platform.New[Config](serviceName,
+		platform.Require(platform.Postgres, platform.Redis, platform.AuthKeys),
+		platform.WithMigrations(migrations.FS, "."),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("bootstrap: %w", err)
+		return nil, err
 	}
-	if app.Redis == nil {
-		return nil, errors.New("redis is required for token revocation checks")
-	}
-	if app.DB == nil {
-		return nil, errors.New("database is required")
-	}
-
-	if err := bootstrap.RunMigrations(migrations.FS, ".", app.Config.Database); err != nil {
-		return nil, fmt.Errorf("migrations: %w", err)
-	}
-
-	pub, err := auth.LoadRSAPublicKey(app.Config.Auth.PublicKeyPEM, app.Config.Auth.PublicKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("load public key: %w", err)
-	}
-
-	mw := middleware.NewMiddleware(app.Logger, app.Tracer)
-	authMW := mw.RS256Auth(auth.NewRSAVerifier(pub), middleware.RS256Options{
-		Revocation: auth.NewRedisRevocationStore(app.Redis),
-	})
 
 	repo := postgres.NewAssetRepository(app.DB)
 	uc := usecase.NewAssetUsecase(repo)
 	httptransport.RegisterRoutes(app.Mux, httptransport.Deps{
-		Auth:   authMW,
+		Auth:   app.Auth,
 		Assets: httptransport.NewAssetHandler(uc),
 	})
 

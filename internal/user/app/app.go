@@ -1,16 +1,12 @@
-// Package app wires the user-service on top of gokit bootstrap.
+// Package app wires the user-service on top of pkg/platform.
 package app
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"os"
 	"time"
 
 	"github.com/piresc/gokit/auth"
-	"github.com/piresc/gokit/bootstrap"
-	"github.com/piresc/gokit/middleware"
 
 	"github.com/piresc/go-project/internal/user/gateway/cache"
 	"github.com/piresc/go-project/internal/user/gateway/messaging"
@@ -20,6 +16,7 @@ import (
 	"github.com/piresc/go-project/internal/user/migrations"
 	"github.com/piresc/go-project/internal/user/repository/postgres"
 	"github.com/piresc/go-project/internal/user/usecase"
+	"github.com/piresc/go-project/pkg/platform"
 )
 
 const (
@@ -29,40 +26,30 @@ const (
 
 // App is the assembled user-service.
 type App struct {
-	app *bootstrap.HTTPApp[Config]
+	app *platform.App[Config]
 }
 
 // New loads configuration, runs migrations and wires routes.
 func New() (*App, error) {
-	app, err := bootstrap.NewHTTPService[Config](serviceName)
-	if err != nil {
-		return nil, fmt.Errorf("bootstrap: %w", err)
-	}
-	if app.DB == nil {
-		return nil, errors.New("database is required")
-	}
-	if app.Redis == nil {
-		return nil, errors.New("redis is required for caching and token revocation")
-	}
-	if app.NATSClient == nil {
-		return nil, errors.New("nats is required (set nats.enabled: true) to publish user events")
-	}
-
-	cfg := app.Config
-	priv, pub, err := loadKeys(cfg.Auth)
+	app, err := platform.New[Config](serviceName,
+		platform.Require(platform.Postgres, platform.Redis, platform.Events, platform.AuthKeys),
+		platform.WithMigrations(migrations.FS, "."),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := bootstrap.RunMigrations(migrations.FS, ".", cfg.Database); err != nil {
-		return nil, fmt.Errorf("migrations: %w", err)
+	cfg := app.Config
+	priv, _, err := loadKeys(cfg.Auth)
+	if err != nil {
+		return nil, err
 	}
 
-	googleID := cfg.Service.GoogleClientID
+	googleID := app.Service.GoogleClientID
 	if v := os.Getenv("GOOGLE_CLIENT_ID"); v != "" {
 		googleID = v
 	}
-	appleID := cfg.Service.AppleClientID
+	appleID := app.Service.AppleClientID
 	if v := os.Getenv("APPLE_CLIENT_ID"); v != "" {
 		appleID = v
 	}
@@ -84,19 +71,15 @@ func New() (*App, error) {
 	}
 	signer := auth.NewRSASigner(priv, issuer, cfg.Auth.AccessTTL)
 	tokens := token.NewService(signer, cfg.Auth.RefreshTTL)
-	revocations := auth.NewRedisRevocationStore(app.Redis)
 
 	repo := postgres.NewUserRepository(app.DB)
 	userCache := cache.NewRedisCache(app.Redis)
 	publisher := messaging.NewNATSPublisher(app.NATSClient)
 
-	authUC := usecase.NewAuthUseCase(repo, userCache, revocations, publisher, google, apple, tokens, cfg.Auth.AccessTTL, app.Logger)
+	authUC := usecase.NewAuthUseCase(repo, userCache, app.Revocations, publisher, google, apple, tokens, cfg.Auth.AccessTTL, app.Logger)
 	userUC := usecase.NewUserUseCase(repo, userCache, app.Logger)
 
-	mw := middleware.NewMiddleware(app.Logger, app.Tracer)
-	authMW := mw.RS256Auth(auth.NewRSAVerifier(pub), middleware.RS256Options{Revocation: revocations})
-
-	httptransport.RegisterRoutes(app.Mux, authMW,
+	httptransport.RegisterRoutes(app.Mux, app.Auth,
 		httptransport.NewAuthHandler(authUC, app.Logger),
 		httptransport.NewUserHandler(userUC, userUC, app.Logger),
 	)
