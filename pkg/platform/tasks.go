@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,7 +30,7 @@ type ScheduleSettings struct {
 	Cron string `yaml:"cron" mapstructure:"cron"`
 }
 
-// Tasks enqueues background tasks and runs the worker and scheduler.
+// Tasks enqueues background tasks and runs the worker and the schedules.
 type Tasks struct {
 	client      *gokitasynq.Client
 	logger      *slog.Logger
@@ -38,11 +39,19 @@ type Tasks struct {
 	concurrency int
 	schedules   []ScheduleSettings
 
-	mu        sync.Mutex
-	handlers  map[string]func(context.Context, []byte) error
-	started   bool
-	server    *gokitasynq.Server
-	scheduler *asynq.Scheduler
+	mu       sync.Mutex
+	handlers map[string]func(context.Context, []byte) error
+	started  bool
+	server   *gokitasynq.Server
+	cancel   context.CancelFunc // stops the schedule goroutines
+	ticks    sync.WaitGroup
+}
+
+// schedule is a parsed ScheduleSettings.
+type schedule struct {
+	task     string
+	next     func(now time.Time) time.Time
+	interval time.Duration
 }
 
 // Handle registers h for taskType. Call it before Run. h returning an error
@@ -73,7 +82,8 @@ func (t *Tasks) Enqueue(ctx context.Context, taskType string, payload any, delay
 	return t.client.Enqueue(ctx, taskType, data, delay)
 }
 
-// start validates the schedules, then starts the worker and the scheduler.
+// start validates the schedules, then starts the worker and one goroutine per
+// schedule. Nothing is started when validation fails.
 func (t *Tasks) start(context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -84,14 +94,13 @@ func (t *Tasks) start(context.Context) error {
 			return fmt.Errorf("schedule %s has no handler", s.Task)
 		}
 	}
-	// Parse every cron spec before starting anything.
-	opts := make([][]asynq.Option, len(t.schedules))
+	parsed := make([]schedule, len(t.schedules))
 	for i, s := range t.schedules {
-		o, err := scheduleOptions(s.Cron)
+		next, interval, err := parseSchedule(s.Cron)
 		if err != nil {
 			return fmt.Errorf("schedule %s: %w", s.Task, err)
 		}
-		opts[i] = o
+		parsed[i] = schedule{task: s.Task, next: next, interval: interval}
 	}
 
 	srv := gokitasynq.NewServer(t.addr, t.password, t.concurrency)
@@ -105,31 +114,50 @@ func (t *Tasks) start(context.Context) error {
 	}
 	t.server = srv
 
-	if len(t.schedules) == 0 {
-		return nil
+	// Nothing below can fail, so no goroutine outlives a failed start.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.cancel = cancel
+	for _, s := range parsed {
+		t.ticks.Add(1)
+		go t.runSchedule(ctx, s)
 	}
-	sch := asynq.NewScheduler(asynq.RedisClientOpt{Addr: t.addr, Password: t.password}, &asynq.SchedulerOpts{
-		Logger:              slogAsynq{t.logger},
-		EnqueueErrorHandler: t.scheduleEnqueueFailed,
-	})
-	for i, s := range t.schedules {
-		if _, err := sch.Register(s.Cron, asynq.NewTask(s.Task, nil), opts[i]...); err != nil {
-			return fmt.Errorf("schedule %s: %w", s.Task, err)
-		}
-	}
-	if err := sch.Start(); err != nil {
-		return fmt.Errorf("start scheduler: %w", err)
-	}
-	t.scheduler = sch
 	return nil
 }
 
-func (t *Tasks) scheduleEnqueueFailed(task *asynq.Task, _ []asynq.Option, err error) {
-	if errors.Is(err, asynq.ErrDuplicateTask) {
-		t.logger.Debug("scheduled task already enqueued this tick", "task", task.Type())
-		return
+// runSchedule enqueues s.task at every wall-clock-aligned tick until ctx ends.
+func (t *Tasks) runSchedule(ctx context.Context, s schedule) {
+	defer t.ticks.Done()
+	for {
+		fire := s.next(time.Now())
+		timer := time.NewTimer(time.Until(fire))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		t.enqueueTick(ctx, s.task, fire, s.interval)
 	}
-	t.logger.Error("scheduled task enqueue failed", "task", task.Type(), "error", err)
+}
+
+// enqueueTick enqueues task for the tick at fire. Every replica computes the
+// same fire time, so the task ID is the same everywhere and only the first
+// enqueue succeeds. Retention keeps the finished task (and its ID) for one
+// interval, so a replica that is late cannot enqueue the tick again. MaxRetry
+// is 0: a failed run waits for the next tick.
+func (t *Tasks) enqueueTick(ctx context.Context, task string, fire time.Time, interval time.Duration) {
+	_, err := t.client.Enqueue(ctx, task, nil, 0,
+		asynq.TaskID(fmt.Sprintf("%s:%d", task, fire.Unix())),
+		asynq.Retention(interval),
+		asynq.MaxRetry(0),
+	)
+	switch {
+	case err == nil:
+	case errors.Is(err, asynq.ErrTaskIDConflict):
+		t.logger.Debug("scheduled task already enqueued for this tick", "task", task, "tick", fire)
+	default:
+		t.logger.Error("scheduled task enqueue failed", "task", task, "tick", fire, "error", err)
+	}
 }
 
 // stopWorker stops the worker, waiting for running handlers. Safe when start
@@ -145,43 +173,49 @@ func (t *Tasks) stopWorker(context.Context) error {
 	return nil
 }
 
-// stopScheduler stops the scheduler. Safe when start never ran or failed part
-// way.
+// stopScheduler stops the schedule goroutines and waits for them. Safe when
+// start never ran or failed part way.
 func (t *Tasks) stopScheduler(context.Context) error {
 	t.mu.Lock()
-	sch := t.scheduler
-	t.scheduler = nil
+	cancel := t.cancel
+	t.cancel = nil
 	t.mu.Unlock()
-	if sch != nil {
-		sch.Shutdown()
+	if cancel != nil {
+		cancel()
 	}
+	t.ticks.Wait()
 	return nil
 }
 
-// scheduleOptions are the enqueue options for a scheduled task. The task is
-// unique for one schedule interval, so N replicas enqueue one task per tick,
-// and it never retries: a failed run waits for the next tick.
-func scheduleOptions(spec string) ([]asynq.Option, error) {
-	interval, err := scheduleInterval(spec)
-	if err != nil {
-		return nil, err
+// parseSchedule returns the function that gives the next tick after now, and
+// the interval between ticks. Ticks are aligned to the wall clock, not to the
+// process start, so every replica fires at the same instants: "@every D" ticks
+// at multiples of D, other specs at the cron times.
+func parseSchedule(spec string) (func(time.Time) time.Time, time.Duration, error) {
+	if rest, ok := strings.CutPrefix(spec, "@every "); ok {
+		d, err := time.ParseDuration(strings.TrimSpace(rest))
+		if err != nil || d <= 0 {
+			return nil, 0, fmt.Errorf("invalid cron %q", spec)
+		}
+		return func(now time.Time) time.Time { return now.Truncate(d).Add(d) }, d, nil
 	}
-	return []asynq.Option{asynq.Unique(interval), asynq.MaxRetry(0)}, nil
+	sched, err := cron.ParseStandard(spec)
+	if err != nil {
+		return nil, 0, fmt.Errorf("invalid cron %q: %w", spec, err)
+	}
+	first := sched.Next(time.Now())
+	return sched.Next, sched.Next(first).Sub(first), nil
 }
 
 // scheduleInterval is the time between two ticks of spec.
 func scheduleInterval(spec string) (time.Duration, error) {
-	sched, err := cron.ParseStandard(spec)
-	if err != nil {
-		return 0, fmt.Errorf("invalid cron %q: %w", spec, err)
-	}
-	first := sched.Next(time.Now())
-	return sched.Next(first).Sub(first), nil
+	_, interval, err := parseSchedule(spec)
+	return interval, err
 }
 
 // initTasks builds Tasks when asynq is enabled and ties the worker and
-// scheduler to the app lifecycle. Stop funcs run newest-first: the scheduler
-// stops first, then the worker, then (registered earlier) the event consumers.
+// schedules to the app lifecycle. Stop funcs run newest-first: the schedules
+// stop first, then the worker, then (registered earlier) the event consumers.
 func (a *App[S]) initTasks() error {
 	if a.AsynqClient == nil {
 		return nil
@@ -210,14 +244,3 @@ func (a *App[S]) initTasks() error {
 	a.onStart(t.start)
 	return nil
 }
-
-// slogAsynq adapts the bootstrap logger to asynq's Logger.
-type slogAsynq struct{ l *slog.Logger }
-
-func (s slogAsynq) Debug(args ...any) { s.l.Debug(fmt.Sprint(args...)) }
-func (s slogAsynq) Info(args ...any)  { s.l.Info(fmt.Sprint(args...)) }
-func (s slogAsynq) Warn(args ...any)  { s.l.Warn(fmt.Sprint(args...)) }
-func (s slogAsynq) Error(args ...any) { s.l.Error(fmt.Sprint(args...)) }
-
-// Fatal logs at error level and does not exit, unlike asynq's default.
-func (s slogAsynq) Fatal(args ...any) { s.l.Error(fmt.Sprint(args...)) }
