@@ -17,6 +17,7 @@ import (
 	"github.com/piresc/gokit/auth"
 	"github.com/piresc/gokit/bootstrap"
 	"github.com/piresc/gokit/middleware"
+	"github.com/piresc/gokit/redislock"
 )
 
 const defaultShutdownTimeout = 30 * time.Second
@@ -41,6 +42,14 @@ type App[S any] struct {
 	Revocations *auth.RedisRevocationStore
 	// Events publishes and consumes JetStream events. Nil without NATS.
 	Events *Events
+	// Tasks enqueues background tasks and runs the worker and scheduler. Nil
+	// unless asynq is enabled.
+	Tasks *Tasks
+	// Locker takes distributed locks, prefixed with the service name. Nil
+	// without Redis.
+	Locker *redislock.Locker
+
+	httpClients map[string]*HTTPClient
 
 	mu      sync.Mutex
 	starts  []func(context.Context) error
@@ -99,7 +108,16 @@ func (a *App[S]) setup(name string, o *options) error {
 	if err := a.initAuth(name); err != nil {
 		return err
 	}
-	return a.initEvents()
+	if err := a.initEvents(); err != nil {
+		return err
+	}
+	if err := a.initTasks(); err != nil {
+		return err
+	}
+	if err := a.initLocker(name); err != nil {
+		return err
+	}
+	return a.initHTTPClients()
 }
 
 // initEvents builds Events when NATS is connected and ties its lifecycle to

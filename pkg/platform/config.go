@@ -5,6 +5,14 @@ package platform
 type Settings struct {
 	Auth   AuthSettings   `yaml:"auth" mapstructure:"auth"`
 	Events EventsSettings `yaml:"events" mapstructure:"events"`
+	// Tasks configures the asynq worker and scheduler. Used only when asynq
+	// is enabled.
+	Tasks TasksSettings `yaml:"tasks" mapstructure:"tasks"`
+	// HTTPClients are named upstream clients, keyed by name. Each key must be
+	// present in the YAML for environment variables to override it.
+	HTTPClients map[string]HTTPClientSettings `yaml:"http_clients" mapstructure:"http_clients"`
+	// Lock tunes the distributed Locker. Used only when Redis is configured.
+	Lock LockSettings `yaml:"lock" mapstructure:"lock"`
 }
 
 // AuthSettings tunes the token middleware.
