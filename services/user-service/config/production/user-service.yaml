@@ -1,0 +1,41 @@
+# Values below are defaults; override via env (DB_HOST, DB_PASSWORD, REDIS_HOST,
+# NATS_URL, JWT_PRIVATE_KEY_PEM, JWT_PUBLIC_KEY_PEM, GOOGLE_CLIENT_ID,
+# APPLE_CLIENT_ID, ...).
+app:
+  name: user-service
+  environment: production
+  version: 0.1.0
+
+server:
+  port: 8084
+  shutdown_timeout: 30
+
+logger:
+  level: info
+  format: json
+
+database:
+  host: postgres
+  port: 5432
+  username: postgres
+  password: ""
+  database: users
+  ssl_mode: disable
+
+redis:
+  host: redis
+  port: 6379
+  db: 0
+
+nats:
+  enabled: true
+  url: nats://nats:4222
+
+auth:
+  issuer: user-service
+  private_key_pem: ""
+  public_key_pem: ""
+
+service:
+  google_client_id: ""
+  apple_client_id: ""

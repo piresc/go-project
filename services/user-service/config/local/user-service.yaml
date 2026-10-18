@@ -1,0 +1,39 @@
+app:
+  name: user-service
+  environment: local
+  version: 0.1.0
+
+server:
+  port: 8084
+  shutdown_timeout: 30
+
+logger:
+  level: debug
+  format: text
+
+database:
+  host: localhost
+  port: 5432
+  username: postgres
+  password: postgres
+  database: users
+  ssl_mode: disable
+
+redis:
+  host: localhost
+  port: 6379
+  db: 0
+
+nats:
+  enabled: true
+  url: nats://localhost:4222
+
+auth:
+  issuer: user-service
+  private_key_path: ../../keys/private.pem
+  public_key_path: ../../keys/public.pem
+
+# Overridable via GOOGLE_CLIENT_ID / APPLE_CLIENT_ID.
+service:
+  google_client_id: ""
+  apple_client_id: ""
