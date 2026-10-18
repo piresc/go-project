@@ -81,7 +81,7 @@ Port from `assetpulse-app/services/uss/internal/{domain,usecase}`, preserving be
 - Produces: `func NewAuthUseCase(repo UserRepository, cache UserCache, revoker TokenRevoker, publisher EventPublisher, google, apple OAuthVerifier, tokens TokenService, accessTTL time.Duration, log *slog.Logger) *AuthUseCase` with methods `AuthenticateGoogle(ctx, idToken string) (*domain.TokenPair, error)`, `AuthenticateApple(...)`, `RefreshTokens(ctx, refreshToken string) (*domain.TokenPair, error)`, `Logout(ctx, userID, accessTokenJTI string, tokenExp time.Time) error`.
 - Produces: `func NewUserUseCase(repo UserRepository, cache UserCache, log *slog.Logger) *UserUseCase` with `GetProfile(ctx, userID string) (*domain.User, error)`, `UpdateProfile(ctx, userID string, update domain.ProfileUpdate) (*domain.User, error)`.
 - `Logout`: revoke all refresh tokens (error returned), then `revoker.Revoke(jti, time.Until(exp))`; a revoke error is logged at Warn and Logout still returns nil (uss behavior).
-- `UpdateProfile` (new validation; uss has none — planner's call): `display_name` trimmed before saving; nil, empty after trim, or > 100 runes → `ErrInvalidInput`, nothing written.
+- `UpdateProfile` (new validation; uss returns 200 for `{}` — user decision 2026-10-18: return 400): `display_name` trimmed before saving; nil, empty after trim, or > 100 runes → `ErrInvalidInput`, nothing written.
 
 - [ ] **Step 1: Port uss `auth_test.go` and `user_test.go`** onto the new constructors (hand-written fakes in the test files), and add:
   - `TestRefreshTokens_RotatedTokenRejected`: refresh with T1 → pair with T2; refresh with T1 again → `ErrInvalidRefresh`.
