@@ -1,9 +1,10 @@
 # AGENTS.md
 
-Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing code. It defines the service layout, layering rules and event table.
+Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing code. It defines the service layout, layering rules, platform capabilities and event table. To add a feature, follow its "Add a use case" recipe.
 
 Quick rules:
 - One Go module at the repo root (`github.com/piresc/go-project`). Services are `cmd/<service>/main.go` plus `internal/<svc>/`.
+- Infrastructure is wired only in `pkg/platform`; services use `platform.App` and never open DB, Redis, NATS or asynq themselves.
 - Build on `github.com/piresc/gokit` (bootstrap, middleware, response, auth). No Google Wire, no chi.
 - Log with the `slog` logger from bootstrap, never `log.Printf`.
 - Respond with `response.Success` / `response.Error`.
