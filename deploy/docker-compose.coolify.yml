@@ -1,0 +1,153 @@
+name: ${APP_NAME:-go-project}
+
+# Coolify runs this file from the repo root, so build contexts are relative to it.
+services:
+  nginx:
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile.nginx
+    restart: unless-stopped
+    expose:
+      - "8080"
+    # No explicit `networks:` — nginx joins the app's default network alongside
+    # the backends (so it can resolve user-service). Traefik is a member of that
+    # network too, so it routes here directly.
+    labels:
+      - "traefik.enable=true"
+      # Route via the app network Traefik shares with this container.
+      - "traefik.docker.network=${TRAEFIK_NETWORK:?TRAEFIK_NETWORK is required}"
+      - "traefik.http.services.${APP_NAME:-go-project}-svc.loadbalancer.server.port=8080"
+      # Custom routers WITHOUT redirect-to-https middleware — Cloudflare runs in
+      # Flexible mode (HTTP to origin), so a forced HTTPS redirect loops forever.
+      # High priority so these win over Coolify's auto-generated redirect routers.
+      - "traefik.http.routers.${APP_NAME:-go-project}-http.entryPoints=http"
+      - "traefik.http.routers.${APP_NAME:-go-project}-http.rule=Host(`${APP_DOMAIN:?APP_DOMAIN is required}`)"
+      - "traefik.http.routers.${APP_NAME:-go-project}-http.priority=9000"
+      - "traefik.http.routers.${APP_NAME:-go-project}-http.service=${APP_NAME:-go-project}-svc"
+      - "traefik.http.routers.${APP_NAME:-go-project}-https.entryPoints=https"
+      - "traefik.http.routers.${APP_NAME:-go-project}-https.rule=Host(`${APP_DOMAIN:?APP_DOMAIN is required}`)"
+      - "traefik.http.routers.${APP_NAME:-go-project}-https.priority=9000"
+      - "traefik.http.routers.${APP_NAME:-go-project}-https.tls=true"
+      - "traefik.http.routers.${APP_NAME:-go-project}-https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.${APP_NAME:-go-project}-https.service=${APP_NAME:-go-project}-svc"
+    depends_on:
+      user-service:
+        condition: service_healthy
+
+  user-service:
+    build:
+      context: ./services/user-service
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER is required}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DB_DATABASE: users
+      DB_SSL_MODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NATS_URL: nats://nats:4222
+      JWT_PRIVATE_KEY_PEM: ${JWT_PRIVATE_KEY_PEM:?JWT_PRIVATE_KEY_PEM is required}
+      JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:?JWT_PUBLIC_KEY_PEM is required}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-720h}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+    expose:
+      - "8084"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
+  # asset-service:
+  #   build:
+  #     context: ./services/asset-service
+  #   restart: unless-stopped
+  #   environment:
+  #     DB_HOST: postgres
+  #     DB_PORT: 5432
+  #     DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER is required}
+  #     DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  #     DB_DATABASE: assets
+  #     DB_SSL_MODE: disable
+  #     REDIS_HOST: redis
+  #     REDIS_PORT: 6379
+  #     NATS_URL: nats://nats:4222
+  #     JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:?JWT_PUBLIC_KEY_PEM is required}
+  #   expose:
+  #     - "8082"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     nats:
+  #       condition: service_started
+
+  # price-service:
+  #   build:
+  #     context: ./services/price-service
+  #   restart: unless-stopped
+  #   environment:
+  #     REDIS_HOST: redis
+  #     REDIS_PORT: 6379
+  #     NATS_URL: nats://nats:4222
+  #     JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:?JWT_PUBLIC_KEY_PEM is required}
+  #   expose:
+  #     - "8083"
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #     nats:
+  #       condition: service_started
+
+  postgres:
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile.postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:?POSTGRES_USER is required} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.4.8-alpine
+    restart: unless-stopped
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nats:
+    image: nats:2.12.0
+    restart: unless-stopped
+    expose:
+      - "4222"
+
+volumes:
+  postgres_data:
+    # Do not rename: renaming starts the app with a fresh empty database.
+    name: ${APP_NAME:-go-project}-postgres-data

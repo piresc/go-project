@@ -32,15 +32,18 @@ keys:
 	openssl genrsa -out keys/private.pem 2048
 	openssl rsa -in keys/private.pem -pubout -out keys/public.pem
 
-# Placeholders: filled in by the compose/e2e task.
+COMPOSE := docker compose -f deploy/docker-compose.yml
+
+# Waits for healthchecks, so migrations have run when this returns.
 up:
-	@echo "not implemented yet"
+	$(COMPOSE) up -d --build --wait
 
 down:
-	@echo "not implemented yet"
+	$(COMPOSE) down -v
 
+# Local/test only. Never run against production.
 seed:
-	@echo "not implemented yet"
+	$(COMPOSE) exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d users' < deploy/bootstrap/seed-test-account.sql
 
 e2e:
-	@echo "not implemented yet"
+	bash deploy/e2e_test.sh

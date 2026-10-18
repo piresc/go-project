@@ -1,0 +1,130 @@
+name: go-project
+
+# Local stack. Run via `make up` (needs `make keys` first). Optional overrides
+# go in deploy/.env (see .env.example).
+services:
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    ports:
+      - "${NGINX_PORT:-8080}:8080"
+    depends_on:
+      user-service:
+        condition: service_healthy
+
+  user-service:
+    build:
+      context: ../services/user-service
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      DB_DATABASE: users
+      DB_SSL_MODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NATS_URL: nats://nats:4222
+      JWT_PRIVATE_KEY_PATH: /keys/private.pem
+      JWT_PUBLIC_KEY_PATH: /keys/public.pem
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-720h}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+    volumes:
+      - ../keys:/keys:ro
+    expose:
+      - "8084"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
+  # asset-service:
+  #   build:
+  #     context: ../services/asset-service
+  #   environment:
+  #     DB_HOST: postgres
+  #     DB_PORT: 5432
+  #     DB_USERNAME: ${POSTGRES_USER:-postgres}
+  #     DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+  #     DB_DATABASE: assets
+  #     DB_SSL_MODE: disable
+  #     REDIS_HOST: redis
+  #     REDIS_PORT: 6379
+  #     NATS_URL: nats://nats:4222
+  #     JWT_PUBLIC_KEY_PATH: /keys/public.pem
+  #   volumes:
+  #     - ../keys:/keys:ro
+  #   expose:
+  #     - "8082"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     nats:
+  #       condition: service_started
+
+  # price-service:
+  #   build:
+  #     context: ../services/price-service
+  #   environment:
+  #     REDIS_HOST: redis
+  #     REDIS_PORT: 6379
+  #     NATS_URL: nats://nats:4222
+  #     JWT_PUBLIC_KEY_PATH: /keys/public.pem
+  #   volumes:
+  #     - ../keys:/keys:ro
+  #   expose:
+  #     - "8083"
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #     nats:
+  #       condition: service_started
+
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4.8-alpine
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nats:
+    image: nats:2.12.0
+    expose:
+      - "4222"
+
+volumes:
+  postgres_data:
