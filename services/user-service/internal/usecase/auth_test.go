@@ -80,10 +80,14 @@ func (r *authRepo) FindRefreshTokenByHash(_ context.Context, hash string) (*doma
 func (r *authRepo) RevokeRefreshToken(_ context.Context, id string) error {
 	for _, token := range r.refreshTokens {
 		if token.ID == id {
+			if token.Revoked {
+				return ErrInvalidRefresh
+			}
 			token.Revoked = true
+			return nil
 		}
 	}
-	return nil
+	return ErrInvalidRefresh
 }
 func (r *authRepo) RevokeAllUserRefreshTokens(_ context.Context, userID string) error {
 	for _, token := range r.refreshTokens {
@@ -248,6 +252,20 @@ func TestRefreshTokens_RotatedTokenRejected(t *testing.T) {
 
 	if _, err := uc.RefreshTokens(context.Background(), t1); !errors.Is(err, ErrInvalidRefresh) {
 		t.Fatalf("expected ErrInvalidRefresh on reuse, got %v", err)
+	}
+}
+
+func TestRevokeRefreshToken_SecondRevokeIsInvalid(t *testing.T) {
+	repo := newAuthRepo()
+	rt := &domain.RefreshToken{UserID: "u1", TokenHash: "h"}
+	if err := repo.CreateRefreshToken(context.Background(), rt); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RevokeRefreshToken(context.Background(), rt.ID); err != nil {
+		t.Fatalf("first revoke: %v", err)
+	}
+	if err := repo.RevokeRefreshToken(context.Background(), rt.ID); !errors.Is(err, ErrInvalidRefresh) {
+		t.Fatalf("expected ErrInvalidRefresh on second revoke, got %v", err)
 	}
 }
 

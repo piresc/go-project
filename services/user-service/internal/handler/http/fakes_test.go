@@ -17,6 +17,9 @@ type fakeAuth struct {
 	logoutJTI  string
 	logoutExp  time.Time
 	logoutCall bool
+
+	// revoke, when set, is called by Logout to revoke the access token jti.
+	revoke func(ctx context.Context, jti string, ttl time.Duration) error
 }
 
 func (f *fakeAuth) AuthenticateGoogle(context.Context, string) (*domain.TokenPair, error) {
@@ -31,9 +34,14 @@ func (f *fakeAuth) RefreshTokens(context.Context, string) (*domain.TokenPair, er
 	return f.pair, f.err
 }
 
-func (f *fakeAuth) Logout(_ context.Context, userID, jti string, exp time.Time) error {
+func (f *fakeAuth) Logout(ctx context.Context, userID, jti string, exp time.Time) error {
 	f.logoutCall = true
 	f.logoutUser, f.logoutJTI, f.logoutExp = userID, jti, exp
+	if f.revoke != nil {
+		if err := f.revoke(ctx, jti, time.Until(exp)); err != nil {
+			return err
+		}
+	}
 	return f.err
 }
 

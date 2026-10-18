@@ -41,5 +41,5 @@ func (s *Service) GenerateRefreshToken() (string, string, time.Time, error) {
 	}
 	plaintext := hex.EncodeToString(b)
 	sum := sha256.Sum256([]byte(plaintext))
-	return plaintext, hex.EncodeToString(sum[:]), time.Now().Add(s.refreshTTL), nil
+	return plaintext, hex.EncodeToString(sum[:]), time.Now().UTC().Add(s.refreshTTL), nil
 }

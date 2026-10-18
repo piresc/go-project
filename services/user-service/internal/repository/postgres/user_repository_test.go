@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -165,6 +166,9 @@ func TestUserRepository(t *testing.T) {
 		got, _ = repo.FindRefreshTokenByHash(ctx, "hash-1")
 		if got == nil || !got.Revoked {
 			t.Fatalf("expected revoked token, got %+v", got)
+		}
+		if err := repo.RevokeRefreshToken(ctx, rt.ID); !errors.Is(err, usecase.ErrInvalidRefresh) {
+			t.Fatalf("revoking an already-revoked token: want ErrInvalidRefresh, got %v", err)
 		}
 
 		for _, h := range []string{"hash-2", "hash-3"} {

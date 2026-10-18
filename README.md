@@ -8,7 +8,7 @@ A Go multi-service boilerplate built on [`github.com/piresc/gokit`](https://gith
 |---------|------|----------|------|
 | asset-service | 8082 | Postgres | Asset CRUD, consumes `user.created` |
 | price-service | 8083 | none (Redis only) | Prices and top performers, guest-readable |
-| user-service | 8084 | Postgres | Authentication and profiles (added later) |
+| user-service | 8084 | Postgres | Authentication (Google/Apple OAuth, JWT, refresh rotation) and profiles |
 
 ## Start a new service
 

@@ -129,10 +129,22 @@ func (r *UserRepository) FindRefreshTokenByHash(ctx context.Context, hash string
 	return &token, nil
 }
 
-// RevokeRefreshToken revokes a single refresh token.
+// RevokeRefreshToken atomically revokes a single refresh token. It returns
+// usecase.ErrInvalidRefresh when the token is unknown or already revoked, so
+// concurrent rotations of the same token cannot both succeed.
 func (r *UserRepository) RevokeRefreshToken(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE refresh_tokens SET revoked = TRUE WHERE id = $1`, id)
-	return err
+	res, err := r.db.ExecContext(ctx, `UPDATE refresh_tokens SET revoked = TRUE WHERE id = $1 AND revoked = FALSE`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return usecase.ErrInvalidRefresh
+	}
+	return nil
 }
 
 // RevokeAllUserRefreshTokens revokes all refresh tokens for a user.

@@ -109,6 +109,23 @@ func TestProtectedRoutesRejectRevokedToken(t *testing.T) {
 	}
 }
 
+func TestLogoutRevokesTokenForSubsequentRequests(t *testing.T) {
+	e := newRouterEnv(t)
+	e.auth.revoke = e.store.Revoke
+	tok, jti, _ := e.token(t)
+
+	if rr := e.do(http.MethodPost, "/auth/logout", "", tok); rr.Code != http.StatusOK {
+		t.Fatalf("logout: got %d %s", rr.Code, rr.Body.String())
+	}
+	if e.auth.logoutJTI != jti {
+		t.Fatalf("logout jti = %q, want %q", e.auth.logoutJTI, jti)
+	}
+	rr := e.do(http.MethodGet, "/users/me", "", tok)
+	if rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), "token revoked") {
+		t.Fatalf("after logout: got %d %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestProtectedRouteAcceptsValidToken(t *testing.T) {
 	e := newRouterEnv(t)
 	tok, _, _ := e.token(t)
