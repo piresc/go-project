@@ -1,4 +1,4 @@
-// Command server runs the user-service HTTP API.
+// Command user-service runs the user-service HTTP API.
 package main
 
 import (

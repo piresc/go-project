@@ -2,6 +2,9 @@
 *.pem
 keys/
 bin/
+/user-service
+/asset-service
+/price-service
 *.out
 *.cov
 coverage*

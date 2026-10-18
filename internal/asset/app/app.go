@@ -10,9 +10,9 @@ import (
 	"github.com/piresc/gokit/middleware"
 
 	httptransport "github.com/piresc/go-project/internal/asset/handler/http"
+	"github.com/piresc/go-project/internal/asset/migrations"
 	"github.com/piresc/go-project/internal/asset/repository/postgres"
 	"github.com/piresc/go-project/internal/asset/usecase"
-	"github.com/piresc/go-project/internal/asset/migrations"
 )
 
 const serviceName = "asset-service"

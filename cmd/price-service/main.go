@@ -1,4 +1,4 @@
-// Command server runs the price-service HTTP API.
+// Command price-service runs the price-service HTTP API.
 package main
 
 import (

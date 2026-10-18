@@ -14,8 +14,8 @@ import (
 	"github.com/piresc/gokit/testkit"
 
 	"github.com/piresc/go-project/internal/user/domain"
-	"github.com/piresc/go-project/internal/user/usecase"
 	"github.com/piresc/go-project/internal/user/migrations"
+	"github.com/piresc/go-project/internal/user/usecase"
 )
 
 func newTestRepo(t *testing.T) (*UserRepository, *sqlx.DB) {

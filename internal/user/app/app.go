@@ -17,9 +17,9 @@ import (
 	"github.com/piresc/go-project/internal/user/gateway/oauth"
 	"github.com/piresc/go-project/internal/user/gateway/token"
 	httptransport "github.com/piresc/go-project/internal/user/handler/http"
+	"github.com/piresc/go-project/internal/user/migrations"
 	"github.com/piresc/go-project/internal/user/repository/postgres"
 	"github.com/piresc/go-project/internal/user/usecase"
-	"github.com/piresc/go-project/internal/user/migrations"
 )
 
 const (

@@ -1,4 +1,4 @@
-// Command server runs the asset-service HTTP API.
+// Command asset-service runs the asset-service HTTP API.
 package main
 
 import (
