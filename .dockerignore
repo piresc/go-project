@@ -1,0 +1,10 @@
+.git
+.env
+*.pem
+keys/
+bin/
+*.out
+*.cov
+coverage*
+.DS_Store
+docs/

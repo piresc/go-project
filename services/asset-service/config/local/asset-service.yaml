@@ -1,0 +1,32 @@
+app:
+  name: asset-service
+  environment: local
+  version: 0.1.0
+
+server:
+  port: 8082
+  shutdown_timeout: 30
+
+logger:
+  level: debug
+  format: text
+
+database:
+  host: localhost
+  port: 5432
+  username: postgres
+  password: postgres
+  database: assets
+  ssl_mode: disable
+
+redis:
+  host: localhost
+  port: 6379
+  db: 0
+
+nats:
+  enabled: true
+  url: nats://localhost:4222
+
+auth:
+  public_key_path: ../../keys/public.pem

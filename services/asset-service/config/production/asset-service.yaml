@@ -1,0 +1,34 @@
+# Values below are defaults; override via env (DB_HOST, DB_PASSWORD, REDIS_HOST,
+# NATS_URL, JWT_PUBLIC_KEY_PEM, ...).
+app:
+  name: asset-service
+  environment: production
+  version: 0.1.0
+
+server:
+  port: 8082
+  shutdown_timeout: 30
+
+logger:
+  level: info
+  format: json
+
+database:
+  host: postgres
+  port: 5432
+  username: postgres
+  password: ""
+  database: assets
+  ssl_mode: disable
+
+redis:
+  host: redis
+  port: 6379
+  db: 0
+
+nats:
+  enabled: true
+  url: nats://nats:4222
+
+auth:
+  public_key_pem: ""

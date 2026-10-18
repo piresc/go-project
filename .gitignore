@@ -1,0 +1,9 @@
+.env
+*.pem
+keys/
+bin/
+/services/*/server
+*.out
+*.cov
+coverage*
+.DS_Store
