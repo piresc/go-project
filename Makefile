@@ -1,4 +1,4 @@
-SERVICES := asset-service price-service
+SERVICES := asset-service price-service user-service
 
 .PHONY: test vet lint build keys up down seed e2e
 

@@ -3,4 +3,5 @@ go 1.26.0
 use (
 	./services/asset-service
 	./services/price-service
+	./services/user-service
 )
