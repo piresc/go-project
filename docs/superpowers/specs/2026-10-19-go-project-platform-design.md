@@ -2,7 +2,7 @@
 
 Agreed with the user on 2026-10-18/19. Goal: like parkir-pintar, a new feature in go-project should only need domain, use case, repository, handler and a few lines of wiring. Every infrastructure capability is wired once, switched on by config, and has a running example to copy.
 
-Requires gokit **v0.5.0** published (trusted-proxy client IP, NATS trace propagation, DB/Redis spans, `OnShutdown` hooks).
+Requires gokit **v0.5.1** published: v0.5.0 brings trusted-proxy client IP, NATS trace propagation and DB/Redis spans; v0.5.1 adds `OnShutdown` hooks.
 
 ## 1. Single module, parkir-pintar layout
 
