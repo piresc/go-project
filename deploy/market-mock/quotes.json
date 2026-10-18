@@ -1,0 +1,11 @@
+{
+  "quotes": [
+    {"symbol": "AAPL", "price": 189.42, "change_pct": 1.84},
+    {"symbol": "MSFT", "price": 411.05, "change_pct": -0.62},
+    {"symbol": "NVDA", "price": 902.31, "change_pct": 4.27},
+    {"symbol": "TSLA", "price": 175.8, "change_pct": -2.15},
+    {"symbol": "AMZN", "price": 178.22, "change_pct": 0.93},
+    {"symbol": "GOOGL", "price": 152.67, "change_pct": 2.56},
+    {"symbol": "META", "price": 492.1, "change_pct": 3.31}
+  ]
+}

@@ -22,5 +22,19 @@ nats:
   enabled: true
   url: nats://nats:4222
 
+asynq:
+  enabled: true
+
 auth:
   public_key_pem: ""
+
+service:
+  tasks:
+    schedules:
+      - task: price:refresh
+        cron: "@every 1m"
+  http_clients:
+    market:
+      # Must be set per deployment: SERVICE_HTTP_CLIENTS_MARKET_BASE_URL.
+      # The key stays here so the env var can override it.
+      base_url: ""
