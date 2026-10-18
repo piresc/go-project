@@ -28,6 +28,12 @@ nats:
   enabled: true
   url: nats://localhost:4222
 
+tracing:
+  enabled: true
+  exporter: otlp-grpc
+  otlp_endpoint: otel-lgtm:4317
+  sample_rate: 1.0
+
 auth:
   issuer: user-service
   private_key_path: keys/private.pem

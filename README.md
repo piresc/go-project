@@ -22,13 +22,23 @@ A Go multi-service boilerplate built on [`github.com/piresc/gokit`](https://gith
 
 ```bash
 make keys    # RSA key pair in keys/ (git-ignored)
-make up      # build and start nginx, user-service, postgres, redis, nats; waits for health
+make up      # build and start nginx, the three services, market-mock, otel-lgtm, postgres, redis, nats; waits for health
 make seed    # insert the test account (local only, never production)
 make e2e     # run deploy/e2e_test.sh against http://localhost:8080
 make down    # stop the stack and remove volumes
 ```
 
-Run `make seed` before every `make e2e`: the e2e refresh rotates the seeded refresh token and logout revokes it, and the seed resets it. Optional overrides (`POSTGRES_PASSWORD`, TTLs, OAuth client IDs) go in `deploy/.env`, copied from `deploy/.env.example`. asset-service and price-service blocks are commented in the compose files and in `deploy/nginx.conf`; uncomment them when those services are ready.
+Run `make seed` before every `make e2e`: the e2e refresh rotates the seeded refresh token and logout revokes it, and the seed resets it. Optional overrides (`POSTGRES_PASSWORD`, TTLs, OAuth client IDs) go in `deploy/.env`, copied from `deploy/.env.example`. If port 8080 or 3000 is busy, set `NGINX_PORT` / `GRAFANA_PORT` and run e2e with a matching `BASE_URL`, for example `NGINX_PORT=18080 make up` then `BASE_URL=http://localhost:18080 make e2e`.
+
+## Observability
+
+The local stack runs `grafana/otel-lgtm` (Grafana, Tempo, Loki, Prometheus). Services export traces over OTLP gRPC to `otel-lgtm:4317`; production config has tracing disabled.
+
+To see a trace:
+
+1. Call an endpoint, for example `curl localhost:8080/api/v1/prices/top-performers`.
+2. Open Grafana at http://localhost:3000 (anonymous admin in this image, or `admin` / `admin`).
+3. Go to Explore, pick the Tempo data source, and search with the tag `service.name = price-service`. Open a trace to see its spans.
 
 Useful targets: `make test`, `make vet`, `make lint`, `make build`.
 
@@ -47,7 +57,7 @@ The stack deploys as a single Coolify Docker Compose application using [`deploy/
 1. Create a **Docker Compose** application in Coolify and point it at this repository.
 2. Set the compose path to `deploy/docker-compose.coolify.yml`.
 3. Expose `nginx` on port `8080`.
-4. Set the environment variables from `deploy/runtime.coolify.env.example`. Required: `APP_DOMAIN`, `TRAEFIK_NETWORK` (the app network Traefik shares with the containers), `JWT_PRIVATE_KEY_PEM`, `JWT_PUBLIC_KEY_PEM`, `POSTGRES_USER`, `POSTGRES_PASSWORD`. Recommended: `GOOGLE_CLIENT_ID`, `APPLE_CLIENT_ID`. Optional: `APP_NAME` (prefix for Traefik router names and the postgres volume), `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL`.
+4. Set the environment variables from `deploy/runtime.coolify.env.example`. Required: `APP_DOMAIN`, `TRAEFIK_NETWORK` (the app network Traefik shares with the containers), `JWT_PRIVATE_KEY_PEM`, `JWT_PUBLIC_KEY_PEM`, `POSTGRES_USER`, `POSTGRES_PASSWORD`. Recommended: `GOOGLE_CLIENT_ID`, `APPLE_CLIENT_ID`. Required for price-service: `SERVICE_HTTP_CLIENTS_MARKET_BASE_URL` (upstream quotes API). Optional: `OTEL_EXPORTER_OTLP_ENDPOINT`, `APP_NAME` (prefix for Traefik router names and the postgres volume), `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL`.
 5. Map `main` to auto-deploy.
 6. After deploying, check that an invalid `POST /api/v1/auth/google` returns `401`.
 

@@ -1,5 +1,5 @@
 # Values below are defaults; override via env (REDIS_HOST, REDIS_PASSWORD,
-# NATS_URL, JWT_PUBLIC_KEY_PEM, ...).
+# JWT_PUBLIC_KEY_PEM, SERVICE_HTTP_CLIENTS_MARKET_BASE_URL, ...).
 app:
   name: price-service
   environment: production
@@ -19,11 +19,13 @@ redis:
   db: 0
 
 nats:
-  enabled: true
-  url: nats://nats:4222
+  enabled: false
 
 asynq:
   enabled: true
+
+tracing:
+  enabled: false
 
 auth:
   public_key_pem: ""

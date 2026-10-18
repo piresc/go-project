@@ -17,11 +17,16 @@ redis:
   db: 0
 
 nats:
-  enabled: true
-  url: nats://localhost:4222
+  enabled: false
 
 asynq:
   enabled: true
+
+tracing:
+  enabled: true
+  exporter: otlp-grpc
+  otlp_endpoint: otel-lgtm:4317
+  sample_rate: 1.0
 
 auth:
   public_key_path: keys/public.pem

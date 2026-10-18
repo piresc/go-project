@@ -12,6 +12,10 @@ services:
     depends_on:
       user-service:
         condition: service_healthy
+      asset-service:
+        condition: service_healthy
+      price-service:
+        condition: service_healthy
 
   user-service:
     build:
@@ -47,6 +51,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    stop_grace_period: 35s
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,59 +60,91 @@ services:
       nats:
         condition: service_healthy
 
-  # asset-service:
-  #   build:
-  #     context: ..
-  #     dockerfile: deploy/Dockerfile
-  #     args:
-  #       SERVICE: asset-service
-  #       PORT: 8082
-  #   environment:
-  #     APP_ENV: local
-  #     DB_HOST: postgres
-  #     DB_PORT: 5432
-  #     DB_USERNAME: ${POSTGRES_USER:-postgres}
-  #     DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-  #     DB_DATABASE: assets
-  #     DB_SSL_MODE: disable
-  #     REDIS_HOST: redis
-  #     REDIS_PORT: 6379
-  #     NATS_URL: nats://nats:4222
-  #     JWT_PUBLIC_KEY_PATH: /keys/public.pem
-  #   volumes:
-  #     - ../keys:/keys:ro
-  #   expose:
-  #     - "8082"
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #     nats:
-  #       condition: service_healthy
+  asset-service:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        SERVICE: asset-service
+        PORT: 8082
+    environment:
+      APP_ENV: local
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      DB_DATABASE: assets
+      DB_SSL_MODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NATS_URL: nats://nats:4222
+      JWT_PUBLIC_KEY_PATH: /keys/public.pem
+    volumes:
+      - ../keys:/keys:ro
+    expose:
+      - "8082"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    stop_grace_period: 35s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
 
-  # price-service:
-  #   build:
-  #     context: ..
-  #     dockerfile: deploy/Dockerfile
-  #     args:
-  #       SERVICE: price-service
-  #       PORT: 8083
-  #   environment:
-  #     APP_ENV: local
-  #     REDIS_HOST: redis
-  #     REDIS_PORT: 6379
-  #     NATS_URL: nats://nats:4222
-  #     JWT_PUBLIC_KEY_PATH: /keys/public.pem
-  #   volumes:
-  #     - ../keys:/keys:ro
-  #   expose:
-  #     - "8083"
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-  #     nats:
-  #       condition: service_healthy
+  price-service:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        SERVICE: price-service
+        PORT: 8083
+    environment:
+      APP_ENV: local
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_PUBLIC_KEY_PATH: /keys/public.pem
+    volumes:
+      - ../keys:/keys:ro
+    expose:
+      - "8083"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    stop_grace_period: 35s
+    depends_on:
+      redis:
+        condition: service_healthy
+      market-mock:
+        condition: service_started
+      otel-lgtm:
+        condition: service_started
+
+  # Local stand-in for the upstream quotes API.
+  market-mock:
+    build:
+      context: market-mock
+    expose:
+      - "8080"
+
+  # Grafana (3000) + Tempo/Loki/Prometheus; OTLP gRPC arrives on 4317.
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.35.0
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    expose:
+      - "4317"
+    volumes:
+      - lgtm_data:/data
 
   postgres:
     build:
@@ -150,5 +187,6 @@ services:
       retries: 10
 
 volumes:
+  lgtm_data:
   nats_data:
   postgres_data:

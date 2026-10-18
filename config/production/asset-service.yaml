@@ -30,6 +30,9 @@ nats:
   enabled: true
   url: nats://nats:4222
 
+tracing:
+  enabled: false
+
 auth:
   public_key_pem: ""
 

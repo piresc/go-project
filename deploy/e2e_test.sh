@@ -55,7 +55,7 @@ require_cmd curl
 require_cmd jq
 
 echo "============================================"
-echo "  go-project E2E Test Suite (user-service)"
+echo "  go-project E2E Test Suite"
 echo "============================================"
 
 section "Auth"
@@ -109,6 +109,43 @@ assert_eq "GET /users/me returns seeded email" "${TEST_EMAIL}" "$(echo "${RESP}"
 RESP="$(curl -s -X PATCH "${BASE_URL}/api/v1/users/me" -H "${AUTH_HEADER}" -H "Content-Type: application/json" -d '{"display_name":"Updated Name"}')"
 assert_eq "PATCH /users/me status field" "success" "$(echo "${RESP}" | jq -r '.status')"
 assert_eq "PATCH /users/me persists display name" "Updated Name" "$(echo "${RESP}" | jq -r '.data.display_name')"
+
+section "Portfolio"
+
+STATUS="$(status_of "${BASE_URL}/api/v1/portfolio")"
+assert_eq "GET /portfolio without token status" "401" "${STATUS}"
+
+# The seed bypasses user.created, so the seeded user has no portfolio.
+RAW="$(curl -s -w '\n%{http_code}' -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/portfolio")"
+STATUS="$(echo "${RAW}" | tail -n1)"
+RESP="$(echo "${RAW}" | sed '$d')"
+assert_eq "GET /portfolio seeded user status" "404" "${STATUS}"
+assert_eq "GET /portfolio seeded user message" "portfolio not found" "$(echo "${RESP}" | jq -r '.error')"
+
+section "Assets"
+
+STATUS="$(status_of -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/assets")"
+assert_eq "GET /assets with token status" "200" "${STATUS}"
+
+section "Prices"
+
+QUOTES_FILE="$(dirname "${BASH_SOURCE[0]}")/market-mock/quotes.json"
+EXPECTED_TOP="$(jq -r '.quotes | max_by(.change_pct) | .symbol' "${QUOTES_FILE}")"
+
+STATUS="$(status_of "${BASE_URL}/api/v1/prices/top-performers")"
+assert_eq "GET /prices/top-performers without token status" "200" "${STATUS}"
+
+# The first refresh runs on the schedule, so poll until the cache is filled.
+RESP=""
+for _ in $(seq 1 30); do
+  RESP="$(curl -s "${BASE_URL}/api/v1/prices/top-performers")"
+  if [ "$(echo "${RESP}" | jq -r '.data | length' 2>/dev/null || true)" = "5" ]; then
+    break
+  fi
+  sleep 1
+done
+assert_eq "GET /prices/top-performers returns 5 items" "5" "$(echo "${RESP}" | jq -r '.data | length')"
+assert_eq "GET /prices/top-performers first item is highest change_pct" "${EXPECTED_TOP}" "$(echo "${RESP}" | jq -r '.data[0].symbol')"
 
 section "Logout"
 
