@@ -37,7 +37,7 @@ func NewUserHandler(reader ProfileReader, writer ProfileWriter, log *slog.Logger
 func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	claims, ok := middleware.GetClaims(r)
 	if !ok {
-		response.Error(w, http.StatusUnauthorized, "authentication required")
+		response.Error(w, http.StatusUnauthorized, response.CodeUnauthorized, msgAuthRequired)
 		return
 	}
 	user, err := h.reader.GetProfile(r.Context(), claims.Subject)
@@ -52,12 +52,12 @@ func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 	claims, ok := middleware.GetClaims(r)
 	if !ok {
-		response.Error(w, http.StatusUnauthorized, "authentication required")
+		response.Error(w, http.StatusUnauthorized, response.CodeUnauthorized, msgAuthRequired)
 		return
 	}
 	var req updateProfileRequest
 	if err := decodeJSON(r, &req); err != nil {
-		response.Error(w, http.StatusBadRequest, msgInvalidBody)
+		response.Error(w, http.StatusBadRequest, response.CodeInvalidInput, msgInvalidBody)
 		return
 	}
 	user, err := h.writer.UpdateProfile(r.Context(), claims.Subject, domain.ProfileUpdate{DisplayName: req.DisplayName})

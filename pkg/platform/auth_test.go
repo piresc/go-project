@@ -63,11 +63,16 @@ func TestAuth_RejectsRevoked(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked: status %d", w.Code)
 	}
-	var body map[string]any
+	var body struct {
+		Success bool `json:"success"`
+		Error   struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body["error"] != "token revoked" {
+	if body.Success || body.Error.Code != "ERR_TOKEN_REVOKED" {
 		t.Fatalf("body = %s", w.Body.String())
 	}
 

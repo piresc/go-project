@@ -47,13 +47,6 @@ type HTTPClient struct {
 	breaker *gobreaker.CircuitBreaker[[]byte]
 }
 
-// statusError is a non-2xx upstream response.
-type statusError struct{ code int }
-
-func (e *statusError) Error() string {
-	return fmt.Sprintf("HTTP error %d: %s", e.code, http.StatusText(e.code))
-}
-
 func newHTTPClient(name string, s HTTPClientSettings, tracer tracing.Tracer) *HTTPClient {
 	if s.Timeout <= 0 {
 		s.Timeout = defaultHTTPTimeout
@@ -87,15 +80,17 @@ func isSuccessful(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return true
 	}
-	var se *statusError
-	if errors.As(err, &se) {
-		return se.code < http.StatusInternalServerError
+	var apiErr *httpclient.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode < http.StatusInternalServerError
 	}
 	return false
 }
 
 // GetJSON GETs endpoint and decodes the JSON body into out. It understands the
-// gokit envelope ({"status", "data", "error"} or {"success", ...}) as well as plain JSON. A nil out
+// gokit envelope ({"success":true,"data":...} and
+// {"success":false,"error":{...}}) as well as plain JSON. A status of 400 or
+// above, or a success:false body, returns a *httpclient.APIError. A nil out
 // discards the body. While the breaker is open it returns ErrUnavailable.
 func (c *HTTPClient) GetJSON(ctx context.Context, endpoint string, out any) error {
 	body, err := c.breaker.Execute(func() ([]byte, error) {
@@ -104,10 +99,14 @@ func (c *HTTPClient) GetJSON(ctx context.Context, endpoint string, out any) erro
 			return nil, err
 		}
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode >= http.StatusBadRequest {
-			return nil, &statusError{code: resp.StatusCode}
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+		if err != nil {
+			return nil, err
 		}
-		return io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+		if resp.StatusCode >= http.StatusBadRequest {
+			return nil, apiError(resp.StatusCode, data)
+		}
+		return data, nil
 	})
 	switch {
 	case errors.Is(err, gobreaker.ErrOpenState), errors.Is(err, gobreaker.ErrTooManyRequests):
@@ -118,31 +117,43 @@ func (c *HTTPClient) GetJSON(ctx context.Context, endpoint string, out any) erro
 	if out == nil {
 		return nil
 	}
-	return decodeJSONBody(body, out)
+	return decodeJSONBody(http.StatusOK, body, out)
 }
 
-// decodeJSONBody unwraps the gokit API envelope when present: the
-// {"status","data","error"} form written by response.Success and
-// response.Error (status is "success" or "error"), or a
-// {"success","data","error"} form. Other JSON, including any other status
-// value, is decoded as is.
-func decodeJSONBody(body []byte, out any) error {
-	var env struct {
-		Status  *string         `json:"status"`
-		Success *bool           `json:"success"`
-		Data    json.RawMessage `json:"data"`
-		Error   string          `json:"error"`
-	}
-	statusEnv := func() bool {
-		return env.Status != nil && (*env.Status == "success" || *env.Status == "error")
-	}
-	if json.Unmarshal(body, &env) == nil && (statusEnv() || env.Success != nil) {
-		ok := env.Success != nil && *env.Success
-		if statusEnv() {
-			ok = *env.Status == "success"
+// envelope is the gokit response body.
+type envelope struct {
+	Success *bool           `json:"success"`
+	Data    json.RawMessage `json:"data"`
+	Error   *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// apiError builds the error for a failed response. It carries the envelope's
+// code and message, or the HTTP status text when the body has none.
+func apiError(status int, body []byte) *httpclient.APIError {
+	e := &httpclient.APIError{StatusCode: status, Message: http.StatusText(status)}
+	var env envelope
+	if json.Unmarshal(body, &env) == nil && env.Error != nil {
+		e.Code = env.Error.Code
+		if env.Error.Message != "" {
+			e.Message = env.Error.Message
 		}
-		if !ok {
-			return fmt.Errorf("API error: %s", env.Error)
+	}
+	return e
+}
+
+// decodeJSONBody unwraps the gokit envelope when the body has a "success"
+// key. With success:false it returns a *httpclient.APIError (status is the
+// HTTP status) and never decodes into out. With success:true it decodes
+// "data" and leaves out untouched when data is missing. Other JSON is decoded
+// as is.
+func decodeJSONBody(status int, body []byte, out any) error {
+	var env envelope
+	if json.Unmarshal(body, &env) == nil && env.Success != nil {
+		if !*env.Success {
+			return apiError(status, body)
 		}
 		if len(env.Data) == 0 {
 			return nil

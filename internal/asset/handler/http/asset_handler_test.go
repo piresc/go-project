@@ -41,6 +41,20 @@ func TestAssetHandler_List(t *testing.T) {
 			if tt.wantIDs == nil {
 				return
 			}
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+				t.Fatalf("decode %q: %v", rec.Body.String(), err)
+			}
+			if len(tt.wantIDs) == 0 {
+				// An empty list is left out of the envelope.
+				if _, ok := raw["data"]; ok {
+					t.Fatalf("empty list: data key present; body=%s", rec.Body)
+				}
+				if string(raw["success"]) != "true" {
+					t.Fatalf("success = %s; body=%s", raw["success"], rec.Body)
+				}
+				return
+			}
 			var env struct {
 				Data []struct {
 					ID string `json:"id"`
@@ -49,8 +63,8 @@ func TestAssetHandler_List(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 				t.Fatalf("decode %q: %v", rec.Body.String(), err)
 			}
-			if env.Data == nil || len(env.Data) != len(tt.wantIDs) {
-				t.Fatalf("data = %v, want %d items (non-null); body=%s", env.Data, len(tt.wantIDs), rec.Body)
+			if len(env.Data) != len(tt.wantIDs) {
+				t.Fatalf("data = %v, want %d items; body=%s", env.Data, len(tt.wantIDs), rec.Body)
 			}
 			for i, id := range tt.wantIDs {
 				if env.Data[i].ID != id {

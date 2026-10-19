@@ -56,23 +56,23 @@ func (h *PriceHandler) Quotes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(symbols) == 0 {
-		response.Error(w, http.StatusBadRequest, "symbols is required")
+		response.Error(w, http.StatusBadRequest, response.CodeInvalidInput, "Symbols is required")
 		return
 	}
 	if len(symbols) > maxQuoteSymbols {
-		response.Error(w, http.StatusBadRequest, "too many symbols")
+		response.Error(w, http.StatusBadRequest, response.CodeInvalidInput, "Too many symbols")
 		return
 	}
 	for _, s := range symbols {
 		if !symbolPattern.MatchString(s) {
-			response.Error(w, http.StatusBadRequest, "invalid symbol")
+			response.Error(w, http.StatusBadRequest, response.CodeInvalidInput, "Invalid symbol")
 			return
 		}
 	}
 	quotes, err := h.quotes.Get(r.Context(), symbols)
 	if err != nil {
 		h.log.ErrorContext(r.Context(), "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
-		response.Error(w, http.StatusInternalServerError, "internal server error")
+		response.Error(w, http.StatusInternalServerError, response.CodeInternal, "Internal server error")
 		return
 	}
 	out := make([]quoteResponse, 0, len(quotes))
@@ -87,7 +87,7 @@ func (h *PriceHandler) TopPerformers(w http.ResponseWriter, r *http.Request) {
 	quotes, err := h.top.Top(r.Context(), topPerformersCount)
 	if err != nil {
 		h.log.ErrorContext(r.Context(), "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
-		response.Error(w, http.StatusInternalServerError, "internal server error")
+		response.Error(w, http.StatusInternalServerError, response.CodeInternal, "Internal server error")
 		return
 	}
 	out := make([]quoteResponse, 0, len(quotes))

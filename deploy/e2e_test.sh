@@ -63,20 +63,21 @@ section "Auth"
 STATUS="$(status_of -X POST "${BASE_URL}/api/v1/auth/google" -H "Content-Type: application/json" -d '{"id_token":"invalid-token"}')"
 assert_eq "POST /auth/google invalid token status" "401" "${STATUS}"
 RESP="$(curl -s -X POST "${BASE_URL}/api/v1/auth/google" -H "Content-Type: application/json" -d '{"id_token":"invalid-token"}')"
-assert_eq "POST /auth/google invalid token status field" "error" "$(echo "${RESP}" | jq -r '.status')"
-assert_eq "POST /auth/google invalid token message" "invalid token" "$(echo "${RESP}" | jq -r '.error')"
+assert_eq "POST /auth/google invalid token success field" "false" "$(echo "${RESP}" | jq -r '.success')"
+assert_eq "POST /auth/google invalid token code" "ERR_INVALID_TOKEN" "$(echo "${RESP}" | jq -r '.error.code')"
+assert_eq "POST /auth/google invalid token message" "Invalid token" "$(echo "${RESP}" | jq -r '.error.message')"
 
 STATUS="$(status_of -X POST "${BASE_URL}/api/v1/auth/apple" -H "Content-Type: application/json" -d '{"id_token":"invalid-token"}')"
 assert_eq "POST /auth/apple invalid token status" "401" "${STATUS}"
 RESP="$(curl -s -X POST "${BASE_URL}/api/v1/auth/apple" -H "Content-Type: application/json" -d '{"id_token":"invalid-token"}')"
-assert_eq "POST /auth/apple invalid token message" "invalid token" "$(echo "${RESP}" | jq -r '.error')"
+assert_eq "POST /auth/apple invalid token code" "ERR_INVALID_TOKEN" "$(echo "${RESP}" | jq -r '.error.code')"
 
 # The refresh rotates the seeded token, so run `make seed` before each e2e run.
 RAW="$(curl -s -w '\n%{http_code}' -X POST "${BASE_URL}/api/v1/auth/refresh" -H "Content-Type: application/json" -d "{\"refresh_token\":\"${SEEDED_REFRESH_TOKEN}\"}")"
 STATUS="$(echo "${RAW}" | tail -n1)"
 RESP="$(echo "${RAW}" | sed '$d')"
 assert_eq "POST /auth/refresh seeded token status" "200" "${STATUS}"
-assert_eq "POST /auth/refresh status field" "success" "$(echo "${RESP}" | jq -r '.status')"
+assert_eq "POST /auth/refresh success field" "true" "$(echo "${RESP}" | jq -r '.success')"
 ACCESS_TOKEN="$(echo "${RESP}" | jq -r '.data.access_token')"
 ROTATED_REFRESH_TOKEN="$(echo "${RESP}" | jq -r '.data.refresh_token')"
 EXPIRES_IN="$(echo "${RESP}" | jq -r '.data.expires_in')"
@@ -100,14 +101,14 @@ section "Profile"
 STATUS="$(status_of "${BASE_URL}/api/v1/users/me")"
 assert_eq "GET /users/me without token status" "401" "${STATUS}"
 RESP="$(curl -s "${BASE_URL}/api/v1/users/me")"
-assert_eq "GET /users/me without token message" "authentication required" "$(echo "${RESP}" | jq -r '.error')"
+assert_eq "GET /users/me without token code" "ERR_UNAUTHORIZED" "$(echo "${RESP}" | jq -r '.error.code')"
 
 RESP="$(curl -s -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/users/me")"
-assert_eq "GET /users/me status field" "success" "$(echo "${RESP}" | jq -r '.status')"
+assert_eq "GET /users/me success field" "true" "$(echo "${RESP}" | jq -r '.success')"
 assert_eq "GET /users/me returns seeded email" "${TEST_EMAIL}" "$(echo "${RESP}" | jq -r '.data.email')"
 
 RESP="$(curl -s -X PATCH "${BASE_URL}/api/v1/users/me" -H "${AUTH_HEADER}" -H "Content-Type: application/json" -d '{"display_name":"Updated Name"}')"
-assert_eq "PATCH /users/me status field" "success" "$(echo "${RESP}" | jq -r '.status')"
+assert_eq "PATCH /users/me success field" "true" "$(echo "${RESP}" | jq -r '.success')"
 assert_eq "PATCH /users/me persists display name" "Updated Name" "$(echo "${RESP}" | jq -r '.data.display_name')"
 
 section "Portfolio"
@@ -120,7 +121,8 @@ RAW="$(curl -s -w '\n%{http_code}' -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/portf
 STATUS="$(echo "${RAW}" | tail -n1)"
 RESP="$(echo "${RAW}" | sed '$d')"
 assert_eq "GET /portfolio seeded user status" "404" "${STATUS}"
-assert_eq "GET /portfolio seeded user message" "portfolio not found" "$(echo "${RESP}" | jq -r '.error')"
+assert_eq "GET /portfolio seeded user code" "ERR_NOT_FOUND" "$(echo "${RESP}" | jq -r '.error.code')"
+assert_eq "GET /portfolio seeded user message" "Portfolio not found" "$(echo "${RESP}" | jq -r '.error.message')"
 
 section "Assets"
 
@@ -139,24 +141,26 @@ assert_eq "GET /prices/top-performers without token status" "200" "${STATUS}"
 RESP=""
 for _ in $(seq 1 30); do
   RESP="$(curl -s "${BASE_URL}/api/v1/prices/top-performers")"
-  if [ "$(echo "${RESP}" | jq -r '.data | length' 2>/dev/null || true)" = "5" ]; then
+  if [ "$(echo "${RESP}" | jq -r '(.data // []) | length' 2>/dev/null || true)" = "5" ]; then
     break
   fi
   sleep 1
 done
-assert_eq "GET /prices/top-performers returns 5 items" "5" "$(echo "${RESP}" | jq -r '.data | length')"
+assert_eq "GET /prices/top-performers returns 5 items" "5" "$(echo "${RESP}" | jq -r '(.data // []) | length')"
 assert_eq "GET /prices/top-performers first item is highest change_pct" "${EXPECTED_TOP}" "$(echo "${RESP}" | jq -r '.data[0].symbol')"
 
 RAW="$(curl -s -w '\n%{http_code}' "${BASE_URL}/api/v1/prices/quotes?symbols=NVDA,AAPL")"
 STATUS="$(echo "${RAW}" | tail -n1)"
 RESP="$(echo "${RAW}" | sed '$d')"
 assert_eq "GET /prices/quotes status" "200" "${STATUS}"
-assert_eq "GET /prices/quotes returns 2 quotes" "2" "$(echo "${RESP}" | jq -r '.data | length')"
+assert_eq "GET /prices/quotes returns 2 quotes" "2" "$(echo "${RESP}" | jq -r '(.data // []) | length')"
 assert_eq "GET /prices/quotes keeps requested order" "NVDA,AAPL" "$(echo "${RESP}" | jq -r '[.data[].symbol] | join(",")')"
 NVDA_PRICE="$(echo "${RESP}" | jq -r '.data[0].price')"
 
 STATUS="$(status_of "${BASE_URL}/api/v1/prices/quotes")"
 assert_eq "GET /prices/quotes without symbols status" "400" "${STATUS}"
+RESP="$(curl -s "${BASE_URL}/api/v1/prices/quotes")"
+assert_eq "GET /prices/quotes without symbols code" "ERR_INVALID_INPUT" "$(echo "${RESP}" | jq -r '.error.code')"
 
 section "Holdings"
 
@@ -222,13 +226,13 @@ fi
 section "Logout"
 
 RESP="$(curl -s -X POST "${BASE_URL}/api/v1/auth/logout" -H "${AUTH_HEADER}")"
-assert_eq "POST /auth/logout status field" "success" "$(echo "${RESP}" | jq -r '.status')"
-assert_eq "POST /auth/logout message" "logged out successfully" "$(echo "${RESP}" | jq -r '.data.message')"
+assert_eq "POST /auth/logout success field" "true" "$(echo "${RESP}" | jq -r '.success')"
+assert_eq "POST /auth/logout message" "Logged out successfully" "$(echo "${RESP}" | jq -r '.data.message')"
 
 STATUS="$(status_of -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/users/me")"
 assert_eq "GET /users/me after logout status" "401" "${STATUS}"
 RESP="$(curl -s -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/users/me")"
-assert_eq "GET /users/me after logout message" "token revoked" "$(echo "${RESP}" | jq -r '.error')"
+assert_eq "GET /users/me after logout code" "ERR_TOKEN_REVOKED" "$(echo "${RESP}" | jq -r '.error.code')"
 
 # asset-service does not check revocation by design (service.auth.skip_revocation_check);
 # the access token stays valid there until it expires.

@@ -35,7 +35,7 @@ func (h *AssetHandler) List(w http.ResponseWriter, r *http.Request) {
 	assets, err := h.svc.List(r.Context())
 	if err != nil {
 		h.log.ErrorContext(r.Context(), "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
-		response.Error(w, http.StatusInternalServerError, "internal server error")
+		response.Error(w, http.StatusInternalServerError, response.CodeInternal, "Internal server error")
 		return
 	}
 	out := make([]assetResponse, 0, len(assets))

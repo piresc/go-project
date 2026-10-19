@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/piresc/gokit/httpclient"
 	"github.com/piresc/gokit/response"
 )
 
@@ -99,31 +100,90 @@ func TestDecodeJSONBody_GokitResponse(t *testing.T) {
 	ok := httptest.NewRecorder()
 	response.Success(ok, http.StatusOK, map[string]int{"n": 7})
 	var got struct{ N int }
-	if err := decodeJSONBody(ok.Body.Bytes(), &got); err != nil || got.N != 7 {
+	if err := decodeJSONBody(http.StatusOK, ok.Body.Bytes(), &got); err != nil || got.N != 7 {
 		t.Fatalf("success: got %+v, err %v", got, err)
 	}
 
 	bad := httptest.NewRecorder()
-	response.Error(bad, http.StatusBadRequest, "no such symbol")
-	err := decodeJSONBody(bad.Body.Bytes(), &got)
-	if err == nil || !strings.Contains(err.Error(), "no such symbol") {
+	response.Error(bad, http.StatusBadRequest, response.CodeInvalidInput, "No such symbol")
+	got = struct{ N int }{N: 1}
+	err := decodeJSONBody(http.StatusOK, bad.Body.Bytes(), &got)
+	var apiErr *httpclient.APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != response.CodeInvalidInput || apiErr.Message != "No such symbol" {
 		t.Fatalf("error envelope: got %v", err)
+	}
+	if !strings.Contains(err.Error(), "ERR_INVALID_INPUT: No such symbol") {
+		t.Fatalf("error text: %v", err)
+	}
+	if got.N != 1 {
+		t.Fatalf("out was written on an error envelope: %+v", got)
+	}
+}
+
+func TestDecodeJSONBody_MissingDataLeavesOut(t *testing.T) {
+	empty := httptest.NewRecorder()
+	response.Success(empty, http.StatusOK, []int{})
+	got := struct{ N int }{N: 5}
+	if err := decodeJSONBody(http.StatusOK, empty.Body.Bytes(), &got); err != nil || got.N != 5 {
+		t.Fatalf("got %+v, err %v", got, err)
 	}
 }
 
 func TestDecodeJSONBody_PlainJSON(t *testing.T) {
 	// No envelope keys: decoded as is.
 	var got struct{ A int }
-	if err := decodeJSONBody([]byte(`{"a":3}`), &got); err != nil || got.A != 3 {
+	if err := decodeJSONBody(http.StatusOK, []byte(`{"a":3}`), &got); err != nil || got.A != 3 {
 		t.Fatalf("got %+v, err %v", got, err)
 	}
 }
 
 func TestDecodeJSONBody_UnknownStatusIsPlain(t *testing.T) {
-	// A status other than "success"/"error" is not an envelope.
+	// A "status" key is not an envelope any more.
 	var got struct{ X int }
-	if err := decodeJSONBody([]byte(`{"status":"OK","x":1}`), &got); err != nil || got.X != 1 {
+	if err := decodeJSONBody(http.StatusOK, []byte(`{"status":"success","x":1}`), &got); err != nil || got.X != 1 {
 		t.Fatalf("got %+v, err %v", got, err)
+	}
+}
+
+func TestHTTPClient_ErrorEnvelopeReachesCaller(t *testing.T) {
+	rec := httptest.NewRecorder()
+	response.Error(rec, http.StatusBadRequest, response.CodeInvalidInput, "Invalid symbol")
+	srv, hits := countingServer(t, http.StatusBadRequest, rec.Body.String())
+	c := newHTTPClient("svc", HTTPClientSettings{BaseURL: srv.URL}, nil)
+
+	err := c.GetJSON(context.Background(), "/x", nil)
+	var apiErr *httpclient.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("want *httpclient.APIError, got %v", err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest || apiErr.Code != response.CodeInvalidInput || apiErr.Message != "Invalid symbol" {
+		t.Fatalf("got %+v", apiErr)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("server saw %d requests, want 1", hits.Load())
+	}
+}
+
+func TestHTTPClient_NonEnvelopeErrorUsesStatusText(t *testing.T) {
+	srv, _ := countingServer(t, http.StatusNotFound, "not json")
+	c := newHTTPClient("svc", HTTPClientSettings{BaseURL: srv.URL}, nil)
+
+	var apiErr *httpclient.APIError
+	err := c.GetJSON(context.Background(), "/x", nil)
+	if !errors.As(err, &apiErr) || apiErr.Message != "Not Found" || apiErr.Code != "" {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestHTTPClient_2xxErrorEnvelope(t *testing.T) {
+	srv, _ := countingServer(t, http.StatusOK, `{"success":false,"error":{"code":"ERR_X","message":"boom"}}`)
+	c := newHTTPClient("svc", HTTPClientSettings{BaseURL: srv.URL}, nil)
+
+	var out struct{ N int }
+	var apiErr *httpclient.APIError
+	err := c.GetJSON(context.Background(), "/x", &out)
+	if !errors.As(err, &apiErr) || apiErr.Code != "ERR_X" || apiErr.Message != "boom" {
+		t.Fatalf("got %v", err)
 	}
 }
 

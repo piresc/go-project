@@ -8,5 +8,5 @@ Quick rules:
 - A service never reads another service's Postgres schema or Redis DB (one shared Postgres and Redis; Postgres enforces it with per-service roles). At most one service may enable asynq per Redis. Cross-service data goes through NATS events or HTTP (a `gateway/<callee>` adapter on `platform.HTTPClient`, see "Service calls (HTTP)").
 - Build on `github.com/piresc/gokit` (bootstrap, middleware, response, auth). No Google Wire, no chi.
 - Log with the `slog` logger from bootstrap, never `log.Printf`.
-- Respond with `response.Success` / `response.Error`.
+- Respond with `response.Success(w, status, data)` / `response.Error(w, status, code, message)`. The body is `{"success":true,"data":...}` or `{"success":false,"error":{"code","message"}}`; use `response.Code*` constants where one fits.
 - Verify with `make vet test build` before finishing.

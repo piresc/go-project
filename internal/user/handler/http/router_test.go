@@ -89,7 +89,7 @@ func TestProtectedRoutesRequireToken(t *testing.T) {
 	e := newRouterEnv(t)
 	for _, rt := range protected {
 		rr := e.do(rt.method, rt.path, rt.body, "")
-		if rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), "authentication required") {
+		if rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), `"code":"ERR_UNAUTHORIZED","message":"Authentication required"`) {
 			t.Errorf("%s %s: got %d %s", rt.method, rt.path, rr.Code, rr.Body.String())
 		}
 	}
@@ -103,7 +103,7 @@ func TestProtectedRoutesRejectRevokedToken(t *testing.T) {
 	}
 	for _, rt := range protected {
 		rr := e.do(rt.method, rt.path, rt.body, tok)
-		if rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), "token revoked") {
+		if rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), `"code":"ERR_TOKEN_REVOKED","message":"Token has been revoked"`) {
 			t.Errorf("%s %s: got %d %s", rt.method, rt.path, rr.Code, rr.Body.String())
 		}
 	}
@@ -121,7 +121,7 @@ func TestLogoutRevokesTokenForSubsequentRequests(t *testing.T) {
 		t.Fatalf("logout jti = %q, want %q", e.auth.logoutJTI, jti)
 	}
 	rr := e.do(http.MethodGet, "/users/me", "", tok)
-	if rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), "token revoked") {
+	if rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), `"code":"ERR_TOKEN_REVOKED","message":"Token has been revoked"`) {
 		t.Fatalf("after logout: got %d %s", rr.Code, rr.Body.String())
 	}
 }

@@ -47,11 +47,11 @@ func newRealUserEnv(t *testing.T) (*routerEnv, *memRepo, string) {
 
 func TestUpdateMeBadRequests(t *testing.T) {
 	cases := []struct{ name, body, msg string }{
-		{"empty object", `{}`, "invalid input"},
-		{"blank name", `{"display_name":"   "}`, "invalid input"},
-		{"unknown field", `{"display_name":"x","extra":1}`, "invalid request body"},
-		{"empty body", ``, "invalid request body"},
-		{"not json", `nope`, "invalid request body"},
+		{"empty object", `{}`, `"code":"ERR_INVALID_INPUT","message":"Invalid input"`},
+		{"blank name", `{"display_name":"   "}`, `"code":"ERR_INVALID_INPUT","message":"Invalid input"`},
+		{"unknown field", `{"display_name":"x","extra":1}`, `"code":"ERR_INVALID_INPUT","message":"Invalid request body"`},
+		{"empty body", ``, `"code":"ERR_INVALID_INPUT","message":"Invalid request body"`},
+		{"not json", `nope`, `"code":"ERR_INVALID_INPUT","message":"Invalid request body"`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -45,7 +45,7 @@ func (h *AuthHandler) Apple(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) idTokenAuth(w http.ResponseWriter, r *http.Request, fn func(context.Context, string) (*domain.TokenPair, error)) {
 	var req authRequest
 	if err := decodeJSON(r, &req); err != nil || req.IDToken == "" {
-		response.Error(w, http.StatusBadRequest, msgInvalidBody)
+		response.Error(w, http.StatusBadRequest, response.CodeInvalidInput, msgInvalidBody)
 		return
 	}
 	pair, err := fn(r.Context(), req.IDToken)
@@ -60,7 +60,7 @@ func (h *AuthHandler) idTokenAuth(w http.ResponseWriter, r *http.Request, fn fun
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var req refreshRequest
 	if err := decodeJSON(r, &req); err != nil || req.RefreshToken == "" {
-		response.Error(w, http.StatusBadRequest, msgInvalidBody)
+		response.Error(w, http.StatusBadRequest, response.CodeInvalidInput, msgInvalidBody)
 		return
 	}
 	pair, err := h.authenticator.RefreshTokens(r.Context(), req.RefreshToken)
@@ -75,7 +75,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	claims, ok := middleware.GetClaims(r)
 	if !ok {
-		response.Error(w, http.StatusUnauthorized, "authentication required")
+		response.Error(w, http.StatusUnauthorized, response.CodeUnauthorized, msgAuthRequired)
 		return
 	}
 	var exp time.Time
@@ -86,5 +86,5 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		writeUseCaseError(w, r, h.log, err)
 		return
 	}
-	response.Success(w, http.StatusOK, map[string]string{"message": "logged out successfully"})
+	response.Success(w, http.StatusOK, map[string]string{"message": "Logged out successfully"})
 }

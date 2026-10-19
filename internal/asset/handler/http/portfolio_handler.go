@@ -96,7 +96,7 @@ func (h *PortfolioHandler) SetHolding(w http.ResponseWriter, r *http.Request) {
 	}
 	var req setHoldingRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes)).Decode(&req); err != nil || req.Quantity == nil {
-		response.Error(w, http.StatusBadRequest, "invalid input")
+		response.Error(w, http.StatusBadRequest, response.CodeInvalidInput, "Invalid input")
 		return
 	}
 	hd, err := h.svc.SetHolding(r.Context(), userID, r.PathValue("symbol"), *req.Quantity)
@@ -115,7 +115,7 @@ func (h *PortfolioHandler) RemoveHolding(w http.ResponseWriter, r *http.Request)
 	}
 	err := h.svc.RemoveHolding(r.Context(), userID, r.PathValue("symbol"))
 	if errors.Is(err, usecase.ErrNotFound) {
-		response.Error(w, http.StatusNotFound, "holding not found")
+		response.Error(w, http.StatusNotFound, response.CodeNotFound, "Holding not found")
 		return
 	}
 	if err != nil {
@@ -153,7 +153,7 @@ func (h *PortfolioHandler) Value(w http.ResponseWriter, r *http.Request) {
 func (h *PortfolioHandler) userID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	claims, ok := middleware.GetClaims(r)
 	if !ok {
-		response.Error(w, http.StatusUnauthorized, "authentication required")
+		response.Error(w, http.StatusUnauthorized, response.CodeUnauthorized, "Authentication required")
 		return "", false
 	}
 	return claims.Subject, true
@@ -162,16 +162,16 @@ func (h *PortfolioHandler) userID(w http.ResponseWriter, r *http.Request) (strin
 func (h *PortfolioHandler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, usecase.ErrNotFound):
-		response.Error(w, http.StatusNotFound, "portfolio not found")
+		response.Error(w, http.StatusNotFound, response.CodeNotFound, "Portfolio not found")
 	case errors.Is(err, usecase.ErrInvalidInput):
-		response.Error(w, http.StatusBadRequest, "invalid input")
+		response.Error(w, http.StatusBadRequest, response.CodeInvalidInput, "Invalid input")
 	case errors.Is(err, usecase.ErrTooManyHoldings):
-		response.Error(w, http.StatusConflict, "too many holdings")
+		response.Error(w, http.StatusConflict, codeTooManyHoldings, "Too many holdings")
 	case errors.Is(err, usecase.ErrPricesUnavailable):
 		h.log.WarnContext(r.Context(), "prices unavailable", "method", r.Method, "path", r.URL.Path, "error", err)
-		response.Error(w, http.StatusServiceUnavailable, "prices unavailable")
+		response.Error(w, http.StatusServiceUnavailable, response.CodeServiceUnavailable, "Prices unavailable")
 	default:
 		h.log.ErrorContext(r.Context(), "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
-		response.Error(w, http.StatusInternalServerError, "internal server error")
+		response.Error(w, http.StatusInternalServerError, response.CodeInternal, "Internal server error")
 	}
 }

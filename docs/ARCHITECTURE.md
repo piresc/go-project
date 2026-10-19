@@ -60,7 +60,7 @@ Design rules:
 | `Events` | `nats.enabled` | JetStream: streams and consumers from `service.events`; JSON `Publish(ctx, subject, v, msgID)` with dedup, `Subscribe(consumer, handler)` |
 | `Tasks` | `asynq.enabled` (needs `redis.db: 0`) | asynq `Enqueue`, `Handle(type, fn)`, cron schedules from `service.tasks.schedules` |
 | `Locker` | Redis configured; `service.lock.ttl` (default 30s) | gokit redislock, key prefix = service name, no retry |
-| `HTTPClient(name)` | `service.http_clients.<name>` (`base_url`, `timeout`, `failure_threshold`, `open_timeout`) | gokit httpclient (up to 3 attempts, trace headers) behind a circuit breaker; `GetJSON` unwraps the gokit `response.Success`/`response.Error` envelope; returns `ErrUnavailable` while the breaker is open |
+| `HTTPClient(name)` | `service.http_clients.<name>` (`base_url`, `timeout`, `failure_threshold`, `open_timeout`) | gokit httpclient (up to 3 attempts, trace headers) behind a circuit breaker; `GetJSON` unwraps the gokit `response.Success` envelope and returns a `*httpclient.APIError` (status, code, message) for 4xx/5xx and `success:false` bodies; returns `ErrUnavailable` while the breaker is open |
 
 Scheduled tasks: each schedule fires on wall-clock-aligned ticks and enqueues with TaskID `<task>:<tick unix>`, `Retention(interval)` and `MaxRetry(0)`. N replicas compute the same ID, so each tick runs once; a failed run waits for the next tick. Every scheduled task needs a `Handle` before `Run`. Every consumer in `service.events.consumers` needs a `Subscribe` before `Run`, otherwise `Run` fails.
 
@@ -79,6 +79,15 @@ Scheduled tasks: each schedule fires on wall-clock-aligned ticks and enqueues wi
 | asset-service (`service.http_clients.price`) | price-service | `GET /prices/quotes?symbols=A,B` | `GET /portfolio/value` |
 
 ## HTTP endpoints
+
+Every JSON response uses the gokit envelope, the same format as AssetPulse:
+
+```json
+{"success": true, "data": {"...": "..."}}
+{"success": false, "error": {"code": "ERR_NOT_FOUND", "message": "Portfolio not found"}}
+```
+
+`data` is left out when empty, so an empty list gives `{"success":true}`; clients must treat a missing `data` as empty. Handlers call `response.Success(w, status, data)` and `response.Error(w, status, code, message)`. Use gokit's `response.Code*` constants where one fits. A service-specific code is a constant in the service's `handler/http/errors.go` (`ERR_TOO_MANY_HOLDINGS` in asset-service; `ERR_INVALID_TOKEN`, `ERR_INVALID_AUDIENCE`, `ERR_REFRESH_EXPIRED`, `ERR_INVALID_REFRESH` in user-service). Messages are sentence case.
 
 | Service | Route | Auth | Notes |
 |---------|-------|------|-------|
@@ -145,7 +154,7 @@ Services with a database embed their SQL in `internal/<svc>/migrations/` (`embed
 |------|---------|
 | `go.mod` | The single module for all services |
 | `pkg/platform/*.go` | Infrastructure wiring (auth, events, tasks, lock, HTTP clients) |
-| `pkg/platform/httpclient.go` | HTTP client, breaker, gokit envelope decoding |
+| `pkg/platform/httpclient.go` | HTTP client, breaker, gokit envelope decoding and `APIError` mapping |
 | `pkg/platform/auth.go` | Auth middleware and the revocation store (optional) |
 | `internal/*/app/app.go` | Wiring per service |
 | `internal/asset/gateway/price/price.go` | Example of a service-call gateway |

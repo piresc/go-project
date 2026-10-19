@@ -86,11 +86,11 @@ func TestQuotes_BadRequests(t *testing.T) {
 		query string
 		want  string
 	}{
-		{"missing", "", "symbols is required"},
-		{"only empties", "?symbols=,%20,", "symbols is required"},
-		{"too many", "?symbols=" + strings.Join(fifty, ","), "too many symbols"},
-		{"invalid chars", "?symbols=AAPL,BAD$", "invalid symbol"},
-		{"too long", "?symbols=ABCDEFGHIJK", "invalid symbol"},
+		{"missing", "", "Symbols is required"},
+		{"only empties", "?symbols=,%20,", "Symbols is required"},
+		{"too many", "?symbols=" + strings.Join(fifty, ","), "Too many symbols"},
+		{"invalid chars", "?symbols=AAPL,BAD$", "Invalid symbol"},
+		{"too long", "?symbols=ABCDEFGHIJK", "Invalid symbol"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

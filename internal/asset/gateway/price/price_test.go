@@ -32,6 +32,9 @@ func (s *stubClient) GetJSON(_ context.Context, endpoint string, out any) error 
 	if err := json.Unmarshal(s.body, &env); err != nil {
 		return err
 	}
+	if len(env.Data) == 0 {
+		return nil
+	}
 	return json.Unmarshal(env.Data, out)
 }
 
