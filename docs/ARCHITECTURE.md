@@ -60,7 +60,7 @@ Design rules:
 | `Locker` | Redis configured; `service.lock.ttl` (default 30s) | gokit redislock, key prefix = service name, no retry |
 | `HTTPClient(name)` | `service.http_clients.<name>` (`base_url`, `timeout`, `failure_threshold`, `open_timeout`) | gokit httpclient (up to 3 attempts, trace headers) behind a circuit breaker; `GetJSON` unwraps the gokit `response.Success`/`response.Error` envelope; returns `ErrUnavailable` while the breaker is open |
 
-Scheduled tasks: each schedule fires on wall-clock-aligned ticks and enqueues with TaskID `<task>:<tick unix>`, `Retention(interval)` and `MaxRetry(0)`. N replicas compute the same ID, so each tick runs once; a failed run waits for the next tick. Every scheduled task needs a `Handle` before `Run`.
+Scheduled tasks: each schedule fires on wall-clock-aligned ticks and enqueues with TaskID `<task>:<tick unix>`, `Retention(interval)` and `MaxRetry(0)`. N replicas compute the same ID, so each tick runs once; a failed run waits for the next tick. Every scheduled task needs a `Handle` before `Run`. Every consumer in `service.events.consumers` needs a `Subscribe` before `Run`, otherwise `Run` fails.
 
 `Run()` starts subscriptions, the task worker and the schedules, then serves HTTP. On SIGINT/SIGTERM HTTP drains first. Then the schedules stop first, then the task worker, then the event consumers, and only then DB, Redis and NATS close.
 

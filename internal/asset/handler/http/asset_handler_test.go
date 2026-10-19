@@ -2,6 +2,7 @@ package httptransport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -24,9 +25,11 @@ func TestAssetHandler_List(t *testing.T) {
 		name     string
 		svc      fakeAssets
 		wantCode int
+		wantIDs  []string
 	}{
-		{"success", fakeAssets{assets: []domain.Asset{{ID: "a1"}}}, http.StatusOK},
-		{"error", fakeAssets{err: errors.New("boom")}, http.StatusInternalServerError},
+		{"success", fakeAssets{assets: []domain.Asset{{ID: "a1"}}}, http.StatusOK, []string{"a1"}},
+		{"empty", fakeAssets{}, http.StatusOK, []string{}},
+		{"error", fakeAssets{err: errors.New("boom")}, http.StatusInternalServerError, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -34,6 +37,25 @@ func TestAssetHandler_List(t *testing.T) {
 			NewAssetHandler(tt.svc, slog.New(slog.NewTextHandler(io.Discard, nil))).List(rec, httptest.NewRequest(http.MethodGet, "/assets", nil))
 			if rec.Code != tt.wantCode {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantCode, rec.Body)
+			}
+			if tt.wantIDs == nil {
+				return
+			}
+			var env struct {
+				Data []struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+				t.Fatalf("decode %q: %v", rec.Body.String(), err)
+			}
+			if env.Data == nil || len(env.Data) != len(tt.wantIDs) {
+				t.Fatalf("data = %v, want %d items (non-null); body=%s", env.Data, len(tt.wantIDs), rec.Body)
+			}
+			for i, id := range tt.wantIDs {
+				if env.Data[i].ID != id {
+					t.Fatalf("data[%d].id = %q, want %q", i, env.Data[i].ID, id)
+				}
 			}
 		})
 	}
