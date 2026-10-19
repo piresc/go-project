@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -166,6 +167,16 @@ func (e *Events) start(context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.started = true
+	declared := make([]string, 0, len(e.declared))
+	for name := range e.declared {
+		declared = append(declared, name)
+	}
+	slices.Sort(declared)
+	for _, name := range declared {
+		if _, ok := e.handlers[name]; !ok {
+			return fmt.Errorf("consumer %s declared in %s but never subscribed", name, eventsDeclarationHint)
+		}
+	}
 	for name, h := range e.handlers {
 		cc, err := e.client.ConsumeContext(name, e.dispatch(name, h))
 		if err != nil {

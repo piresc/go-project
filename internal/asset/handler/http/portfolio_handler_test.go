@@ -69,7 +69,7 @@ func do(t *testing.T, svc *fakeService, method, path, body string, authed bool) 
 		})
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	RegisterRoutes(mux, Deps{Auth: inject, Assets: NewAssetHandler(nil), Portfolio: NewPortfolioHandler(svc, log)})
+	RegisterRoutes(mux, Deps{Auth: inject, Assets: NewAssetHandler(nil, log), Portfolio: NewPortfolioHandler(svc, log)})
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	rr := httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)

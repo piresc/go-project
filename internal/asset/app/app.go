@@ -40,7 +40,7 @@ func New() (*App, error) {
 	portfolioUC := usecase.NewPortfolioUsecase(postgres.NewPortfolioRepository(app.DB), pricegateway.New(priceClient))
 	httptransport.RegisterRoutes(app.Mux, httptransport.Deps{
 		Auth:      app.Auth,
-		Assets:    httptransport.NewAssetHandler(uc),
+		Assets:    httptransport.NewAssetHandler(uc, app.Logger),
 		Portfolio: httptransport.NewPortfolioHandler(portfolioUC, app.Logger),
 	})
 

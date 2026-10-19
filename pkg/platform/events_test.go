@@ -54,6 +54,19 @@ func startEvents(t *testing.T, e *Events) {
 	t.Cleanup(func() { _ = e.stop(context.Background()) })
 }
 
+func TestStart_DeclaredConsumerNeverSubscribed(t *testing.T) {
+	e := newTestEvents(t, testSettings())
+	err := e.start(context.Background())
+	t.Cleanup(func() { _ = e.stop(context.Background()) })
+	if err == nil {
+		t.Fatal("start succeeded with an unsubscribed declared consumer")
+	}
+	want := "consumer c1 declared in service.events.consumers but never subscribed"
+	if err.Error() != want {
+		t.Fatalf("err = %q, want %q", err, want)
+	}
+}
+
 func TestPublishSubscribe_RoundTrip(t *testing.T) {
 	e := newTestEvents(t, testSettings())
 	got := make(chan Event, 1)
