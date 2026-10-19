@@ -7,11 +7,10 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/piresc/gokit/redislock"
-
 	"github.com/piresc/go-project/internal/price/domain"
-	"github.com/piresc/go-project/pkg/platform"
 )
+
+var errUnavailable = errors.New("market unavailable")
 
 type fakeSource struct {
 	quotes []domain.Quote
@@ -99,7 +98,7 @@ func TestRefresh_CachesAndReleases(t *testing.T) {
 func TestRefresh_LockHeldSkips(t *testing.T) {
 	src := &fakeSource{quotes: sevenQuotes()}
 	cache := &fakeCache{}
-	locker := &fakeLocker{err: redislock.ErrLockUnavailable}
+	locker := &fakeLocker{err: ErrLockHeld}
 	uc := NewRefreshUsecase(src, cache, locker, discardLog())
 
 	if err := uc.Refresh(context.Background()); err != nil {
@@ -124,13 +123,13 @@ func TestRefresh_LockErrorPropagates(t *testing.T) {
 }
 
 func TestRefresh_BreakerOpenFailsFast(t *testing.T) {
-	src := &fakeSource{err: platform.ErrUnavailable}
+	src := &fakeSource{err: errUnavailable}
 	cache := &fakeCache{}
 	locker := &fakeLocker{}
 	uc := NewRefreshUsecase(src, cache, locker, discardLog())
 
 	err := uc.Refresh(context.Background())
-	if !errors.Is(err, platform.ErrUnavailable) {
+	if !errors.Is(err, errUnavailable) {
 		t.Fatalf("want ErrUnavailable, got %v", err)
 	}
 	if cache.sets != 0 {
@@ -138,5 +137,23 @@ func TestRefresh_BreakerOpenFailsFast(t *testing.T) {
 	}
 	if locker.lock.released != 1 {
 		t.Fatalf("lock released = %d, want 1 even on failure", locker.lock.released)
+	}
+}
+
+func TestRefresh_EmptyQuotesKeepsCache(t *testing.T) {
+	prev := sevenQuotes()
+	src := &fakeSource{quotes: nil}
+	cache := &fakeCache{quotes: prev}
+	locker := &fakeLocker{}
+	uc := NewRefreshUsecase(src, cache, locker, discardLog())
+
+	if err := uc.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if cache.sets != 0 || len(cache.quotes) != len(prev) {
+		t.Fatalf("cache sets=%d quotes=%d, want 0 and %d", cache.sets, len(cache.quotes), len(prev))
+	}
+	if locker.lock.released != 1 {
+		t.Fatalf("lock released = %d, want 1", locker.lock.released)
 	}
 }

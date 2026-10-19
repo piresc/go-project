@@ -11,6 +11,8 @@ import (
 	"github.com/piresc/gokit/config"
 	gokitredis "github.com/piresc/gokit/redis"
 	"github.com/piresc/gokit/redislock"
+
+	"github.com/piresc/go-project/internal/price/usecase"
 )
 
 func TestLocker_HeldThenReleased(t *testing.T) {
@@ -35,8 +37,8 @@ func TestLocker_HeldThenReleased(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Acquire: %v", err)
 	}
-	if _, err := l.Acquire(ctx, "refresh"); !errors.Is(err, redislock.ErrLockUnavailable) {
-		t.Fatalf("second Acquire = %v, want ErrLockUnavailable", err)
+	if _, err := l.Acquire(ctx, "refresh"); !errors.Is(err, usecase.ErrLockHeld) {
+		t.Fatalf("second Acquire = %v, want ErrLockHeld", err)
 	}
 	if err := first.Release(ctx); err != nil {
 		t.Fatalf("Release: %v", err)

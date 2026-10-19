@@ -51,6 +51,8 @@ type App[S any] struct {
 
 	httpClients map[string]*HTTPClient
 
+	stopTrace func(name string) // tests only, see options.stopTrace
+
 	mu      sync.Mutex
 	starts  []func(context.Context) error
 	stopped atomic.Bool // set by the first shutdown hook to run (the last of them)
@@ -77,10 +79,11 @@ func New[S any](name string, opts ...Option) (*App[S], error) {
 		Service:    hub.Config.Service.App,
 		Settings:   hub.Config.Service.Settings,
 		Middleware: middleware.NewMiddleware(hub.Logger, hub.Tracer),
+		stopTrace:  o.stopTrace,
 	}
 	// Registered first, so it runs last of the hooks: it only records that a
 	// shutdown happened, so Run does not shut down twice.
-	a.onStop(func(context.Context) error { a.stopped.Store(true); return nil })
+	a.onStopNamed("hooks-done", func(context.Context) error { a.stopped.Store(true); return nil })
 
 	if err := a.setup(name, &o); err != nil {
 		if serr := a.Shutdown(context.Background()); serr != nil {
@@ -133,7 +136,7 @@ func (a *App[S]) initEvents() error {
 		return fmt.Errorf("events: %w", err)
 	}
 	a.Events = ev
-	a.onStop(ev.stop)
+	a.onStopNamed("events", ev.stop)
 	a.onStart(ev.start)
 	return nil
 }
@@ -168,6 +171,17 @@ func (a *App[S]) onStart(fn func(context.Context) error) {
 // Stop funcs run newest-first, so register what must stop last first.
 func (a *App[S]) onStop(fn func(context.Context) error) {
 	a.OnShutdown(fn)
+}
+
+// onStopNamed is onStop for a platform hook, reporting name to stopTrace
+// (when set) just before fn runs.
+func (a *App[S]) onStopNamed(name string, fn func(context.Context) error) {
+	a.onStop(func(ctx context.Context) error {
+		if a.stopTrace != nil {
+			a.stopTrace(name)
+		}
+		return fn(ctx)
+	})
 }
 
 // Run runs the registered start funcs in order, then serves HTTP until a

@@ -60,6 +60,9 @@ type migrationSpec struct {
 type options struct {
 	require    []Dependency
 	migrations *migrationSpec
+	// stopTrace, set only by tests, is called with the name of each platform
+	// stop hook just before it runs.
+	stopTrace func(name string)
 }
 
 // Option customises New.

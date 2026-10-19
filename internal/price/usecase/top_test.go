@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	"github.com/piresc/go-project/pkg/platform"
 )
 
 func TestTopPerformers_ServesStaleCache(t *testing.T) {
 	cache := &fakeCache{quotes: sevenQuotes()}
-	src := &fakeSource{err: platform.ErrUnavailable}
+	src := &fakeSource{err: errUnavailable}
 	uc := NewTopUsecase(cache)
 
 	got, err := uc.Top(context.Background(), 5)

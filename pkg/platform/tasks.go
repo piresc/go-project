@@ -239,8 +239,8 @@ func (a *App[S]) initTasks() error {
 		handlers:    make(map[string]func(context.Context, []byte) error),
 	}
 	a.Tasks = t
-	a.onStop(t.stopWorker)
-	a.onStop(t.stopScheduler)
+	a.onStopNamed("worker", t.stopWorker)
+	a.onStopNamed("schedules", t.stopScheduler)
 	a.onStart(t.start)
 	return nil
 }

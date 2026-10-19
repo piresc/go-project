@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-
-	"github.com/piresc/gokit/redislock"
 )
 
 const refreshLockKey = "refresh"
@@ -30,7 +28,7 @@ func NewRefreshUsecase(source QuoteSource, cache QuoteCache, locker Locker, log 
 // returns nil. A failed fetch leaves the cache as it was.
 func (u *RefreshUsecase) Refresh(ctx context.Context) error {
 	lock, err := u.locker.Acquire(ctx, refreshLockKey)
-	if errors.Is(err, redislock.ErrLockUnavailable) {
+	if errors.Is(err, ErrLockHeld) {
 		u.log.DebugContext(ctx, "price refresh already running, skipping")
 		return nil
 	}
@@ -46,6 +44,10 @@ func (u *RefreshUsecase) Refresh(ctx context.Context) error {
 	quotes, err := u.source.Quotes(ctx)
 	if err != nil {
 		return fmt.Errorf("fetch quotes: %w", err)
+	}
+	if len(quotes) == 0 {
+		u.log.WarnContext(ctx, "market returned no quotes, keeping cached data")
+		return nil
 	}
 	if err := u.cache.Set(ctx, quotes); err != nil {
 		return fmt.Errorf("cache quotes: %w", err)

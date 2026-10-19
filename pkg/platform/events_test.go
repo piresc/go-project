@@ -124,7 +124,11 @@ func TestSubscribe_RetryThenAck(t *testing.T) {
 }
 
 func TestSubscribe_PermanentErrorTerminates(t *testing.T) {
-	e := newTestEvents(t, testSettings())
+	// A short AckWait redelivers the message unless it was Term'd or Ack'd, so
+	// the test fails when neither is sent.
+	s := testSettings()
+	s.Consumers[0].AckWait = 200 * time.Millisecond
+	e := newTestEvents(t, s)
 	e.nakDelay = 10 * time.Millisecond
 	var n atomic.Int32
 	if err := e.Subscribe("c1", func(context.Context, Event) error {

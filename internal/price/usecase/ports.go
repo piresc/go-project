@@ -24,8 +24,8 @@ type Lock interface {
 	Release(ctx context.Context) error
 }
 
-// Locker takes named distributed locks. Acquire returns
-// redislock.ErrLockUnavailable when the lock is already held.
+// Locker takes named distributed locks. Acquire returns ErrLockHeld when the
+// lock is already held.
 type Locker interface {
 	Acquire(ctx context.Context, key string) (Lock, error)
 }

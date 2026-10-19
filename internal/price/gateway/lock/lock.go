@@ -3,6 +3,7 @@ package lock
 
 import (
 	"context"
+	"errors"
 
 	"github.com/piresc/gokit/redislock"
 
@@ -12,7 +13,7 @@ import (
 var _ usecase.Locker = (*Locker)(nil)
 
 // Locker wraps *redislock.Locker. Acquire reports a held lock as
-// redislock.ErrLockUnavailable.
+// usecase.ErrLockHeld.
 type Locker struct {
 	inner *redislock.Locker
 }
@@ -25,6 +26,9 @@ func New(inner *redislock.Locker) *Locker {
 // Acquire takes the named lock.
 func (l *Locker) Acquire(ctx context.Context, key string) (usecase.Lock, error) {
 	lk, err := l.inner.Acquire(ctx, key)
+	if errors.Is(err, redislock.ErrLockUnavailable) {
+		return nil, usecase.ErrLockHeld
+	}
 	if err != nil {
 		return nil, err
 	}

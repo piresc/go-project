@@ -58,7 +58,7 @@ Design rules:
 
 Scheduled tasks: each schedule fires on wall-clock-aligned ticks and enqueues with TaskID `<task>:<tick unix>`, `Retention(interval)` and `MaxRetry(0)`. N replicas compute the same ID, so each tick runs once; a failed run waits for the next tick. Every scheduled task needs a `Handle` before `Run`.
 
-`Run()` starts subscriptions, the task worker and the schedules, then serves HTTP. On SIGINT/SIGTERM HTTP drains first, then consumers and workers stop, and only then DB, Redis and NATS close.
+`Run()` starts subscriptions, the task worker and the schedules, then serves HTTP. On SIGINT/SIGTERM HTTP drains first. Then the schedules stop first, then the task worker, then the event consumers, and only then DB, Redis and NATS close.
 
 ## Add a use case
 
@@ -84,7 +84,6 @@ Follow these steps; the examples are real code to copy.
 ## Caching Strategy (Redis)
 
 - **user-service**: revoked access-token JTI set (TTL = token remaining life)
-- **asset-service**: asset cache
 - **price-service**: latest quotes under one key with no TTL, so the last good quotes survive a market outage; refreshed by the `price:refresh` task under a lock
 
 ## Migrations
