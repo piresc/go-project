@@ -2,21 +2,25 @@
 
 ## Overview
 
-go-project is a set of Go services built on `github.com/piresc/gokit`. Services talk to each other through NATS JetStream for async events and share infrastructure (PostgreSQL, Redis). All infrastructure is wired once in `pkg/platform` and switched on by config.
+go-project is a set of Go services built on `github.com/piresc/gokit`. Each service owns its datastores (PostgreSQL, Redis). Services talk to each other through NATS JetStream for async events and through HTTP for synchronous reads. Only NATS is shared, because it is the bus. All infrastructure is wired once in `pkg/platform` and switched on by config.
 
 ## Service Boundaries
 
-| Service | Responsibility | Port | Database |
-|---------|---------------|------|----------|
-| **user-service** | Authentication, user profiles, token management | 8084 | Postgres |
-| **asset-service** | Asset CRUD, per-user portfolio | 8082 | Postgres |
-| **price-service** | Scheduled quote refresh, top performers | 8083 | None (Redis only) |
+| Service | Responsibility | Port | Postgres | Redis |
+|---------|---------------|------|----------|-------|
+| **user-service** | Authentication, user profiles, token management | 8084 | `postgres-user` (db `users`) | `redis-user` |
+| **asset-service** | Asset CRUD, per-user portfolio, holdings and valuation | 8082 | `postgres-asset` (db `assets`) | `redis-asset` |
+| **price-service** | Scheduled quote refresh, top performers, quotes | 8083 | None | `redis-price` |
+
+A service never connects to another service's database or Redis. The one exception is token revocation (see Auth).
 
 One Go module (`go.mod` at the repo root, `github.com/piresc/go-project`). Each service has an entrypoint under `cmd/<name>-service/` and its own tree under `internal/<svc>/` (`user`, `asset`, `price`). One `deploy/Dockerfile` builds any service via the `SERVICE` and `PORT` build args.
 
 ## Auth
 
 Tokens are RS256 JWTs. user-service signs them with the private key; every other service only holds the public key. `platform.App` builds `Auth` (and `OptionalAuth` for guest-readable routes) with a Redis revocation store, so revoked token IDs are rejected. There is no shared auth package inside this repo: gokit provides it.
+
+user-service writes revoked token IDs to `redis-user`, and every service has to see them. asset-service and price-service therefore set `service.auth.revocation_redis` (host `redis-user`), which makes the platform open a separate, revocation-only client. Their own Redis is not used for revocation. This is the only cross-service datastore access, and it is read-only. In compose it can be overridden with `SERVICE_AUTH_REVOCATION_REDIS_HOST` and `SERVICE_AUTH_REVOCATION_REDIS_PORT`; the `revocation_redis` key must be present in the YAML for the env override to apply.
 
 ## Layout
 
@@ -50,15 +54,39 @@ Design rules:
 | `Service S` | always (`service:`) | the service's own settings |
 | `Middleware` | always | gokit middleware (e.g. `RequireRole`) |
 | `Auth`, `OptionalAuth` | `auth.public_key_path` or `JWT_PUBLIC_KEY_PEM` | RS256 middleware with Redis revocation; fail-closed (503) unless `service.auth.fail_open: true` |
-| `Revocations` | Redis configured (`redis.host`) | `auth.RedisRevocationStore` |
+| `Revocations` | `service.auth.revocation_redis.host`, else Redis configured (`redis.host`) | `auth.RedisRevocationStore` on the revocation Redis when set, otherwise on `Redis` |
 | `Events` | `nats.enabled` | JetStream: streams and consumers from `service.events`; JSON `Publish(ctx, subject, v, msgID)` with dedup, `Subscribe(consumer, handler)` |
 | `Tasks` | `asynq.enabled` (needs `redis.db: 0`) | asynq `Enqueue`, `Handle(type, fn)`, cron schedules from `service.tasks.schedules` |
 | `Locker` | Redis configured; `service.lock.ttl` (default 30s) | gokit redislock, key prefix = service name, no retry |
-| `HTTPClient(name)` | `service.http_clients.<name>` (`base_url`, `timeout`, `failure_threshold`, `open_timeout`) | gokit httpclient (retries, trace headers) behind a circuit breaker |
+| `HTTPClient(name)` | `service.http_clients.<name>` (`base_url`, `timeout`, `failure_threshold`, `open_timeout`) | gokit httpclient (up to 3 attempts, trace headers) behind a circuit breaker; `GetJSON` unwraps the gokit `response.Success`/`response.Error` envelope; returns `ErrUnavailable` while the breaker is open |
 
 Scheduled tasks: each schedule fires on wall-clock-aligned ticks and enqueues with TaskID `<task>:<tick unix>`, `Retention(interval)` and `MaxRetry(0)`. N replicas compute the same ID, so each tick runs once; a failed run waits for the next tick. Every scheduled task needs a `Handle` before `Run`.
 
 `Run()` starts subscriptions, the task worker and the schedules, then serves HTTP. On SIGINT/SIGTERM HTTP drains first. Then the schedules stop first, then the task worker, then the event consumers, and only then DB, Redis and NATS close.
+
+## Service calls (HTTP)
+
+- Calls use `platform.HTTPClient` from `service.http_clients.<name>`. The caller owns a `gateway/<callee>` adapter behind a usecase port, with its own domain types; it does not import the callee's packages. The adapter takes a narrow `GetJSON` interface that `*platform.HTTPClient` satisfies.
+- Calls go container to container (for example `http://price-service:8083`), not through nginx. Production can override the base URL with `SERVICE_HTTP_CLIENTS_<NAME>_BASE_URL`.
+- The client makes up to 3 attempts per call, each limited by the client's `timeout`, behind a circuit breaker. While the breaker is open, `GetJSON` returns `ErrUnavailable` without calling the upstream. The usecase maps any upstream failure to a domain error (`ErrPricesUnavailable`) and the handler answers 503.
+- The internal call is unauthenticated: the platform client cannot forward the caller's token. A callee must expose only public data on such routes (`GET /prices/quotes` uses `OptionalAuth`).
+- Keep `timeout` x 3 attempts under nginx's 5s `proxy_read_timeout`, so an outage gives 503, not 504.
+
+| Caller | Callee | Call | Used for |
+|--------|--------|------|----------|
+| asset-service (`service.http_clients.price`) | price-service | `GET /prices/quotes?symbols=A,B` | `GET /portfolio/value` |
+
+## HTTP endpoints
+
+| Service | Route | Auth | Notes |
+|---------|-------|------|-------|
+| asset-service | `GET /assets` | required | |
+| asset-service | `GET /portfolio` | required | portfolio plus `holdings` |
+| asset-service | `PUT /portfolio/holdings/{symbol}` | required | body `{"quantity": n}`; creates the portfolio if missing; 400 invalid, 409 over 50 holdings |
+| asset-service | `DELETE /portfolio/holdings/{symbol}` | required | 204; 404 if missing |
+| asset-service | `GET /portfolio/value` | required | holdings priced via price-service; `unpriced` lists symbols without a quote; 503 if prices are unavailable |
+| price-service | `GET /prices/top-performers` | optional | |
+| price-service | `GET /prices/quotes?symbols=A,B` | optional | cached quotes only, in request order; unknown symbols omitted; 1 to 50 symbols, else 400 |
 
 ## Add a use case
 
@@ -72,8 +100,9 @@ Follow these steps; the examples are real code to copy.
    - HTTP route: `handler/http/router.go`, `RegisterRoutes`. Example: `internal/asset/handler/http/portfolio_handler.go`.
    - Event: `handler/event/`, registered with `Events.Subscribe`. Example: `internal/asset/handler/event/user_created.go`.
    - Task: `handler/task/`, registered with `Tasks.Handle`. Example: `internal/price/handler/task/refresh.go`.
+   - Needs another service's data: add a gateway (see "Service calls (HTTP)") plus a `service.http_clients.<name>` entry. Never read that service's database or Redis. Example: `internal/asset/gateway/price`.
 6. **One wiring line** in `internal/<svc>/app/app.go`: build the adapter and use case, then register the handler (`app.Events.Subscribe(...)`, `app.Tasks.Handle(...)`, `httptransport.RegisterRoutes(...)`). Examples: `internal/asset/app/app.go` (events, migrations), `internal/price/app/app.go` (tasks, lock, `HTTPClient`). Add the needed dependency to `platform.Require`.
-7. **Config keys**: in `config/local/<svc>.yaml` and `config/production/<svc>.yaml`: `nats.enabled` plus `service.events` (streams, consumers), `asynq.enabled` plus `service.tasks.schedules`, `service.http_clients.<name>`, `service.lock.ttl`, `service.auth.fail_open`, `auth.public_key_path`. Service-specific keys go in `internal/<svc>/app/config.go`.
+7. **Config keys**: in `config/local/<svc>.yaml` and `config/production/<svc>.yaml`: `nats.enabled` plus `service.events` (streams, consumers), `asynq.enabled` plus `service.tasks.schedules`, `service.http_clients.<name>`, `service.lock.ttl`, `service.auth.fail_open`, `service.auth.revocation_redis`, `auth.public_key_path`. Service-specific keys go in `internal/<svc>/app/config.go`.
 
 ## Event Bus (NATS JetStream)
 
@@ -83,12 +112,17 @@ Follow these steps; the examples are real code to copy.
 
 ## Caching Strategy (Redis)
 
-- **user-service**: revoked access-token JTI set (TTL = token remaining life)
-- **price-service**: latest quotes under one key with no TTL, so the last good quotes survive a market outage; refreshed by the `price:refresh` task under a lock
+Each service has its own Redis (`redis-user`, `redis-asset`, `redis-price`).
+
+- **user-service** (`redis-user`): revoked access-token JTI set (TTL = token remaining life). asset-service and price-service read it through `service.auth.revocation_redis`; they never write to it.
+- **price-service** (`redis-price`): latest quotes under one key with no TTL, so the last good quotes survive a market outage; refreshed by the `price:refresh` task under a lock. `GET /prices/quotes` reads only this cache, never the market.
+- **asset-service** (`redis-asset`): wired for platform needs only; no application keys yet.
 
 ## Migrations
 
-Services with a database embed their SQL in `internal/<svc>/migrations/` (`embed.FS`) and apply them at boot through `platform.WithMigrations`.
+Services with a database embed their SQL in `internal/<svc>/migrations/` (`embed.FS`) and apply them at boot through `platform.WithMigrations`. Each service migrates only its own database; the schema is created on a fresh volume by `POSTGRES_DB` plus these migrations.
+
+Upgrading a Coolify deployment that still has the old single `postgres` and `redis` containers needs a one-off data copy. See [Upgrading an existing Coolify deployment](../README.md#upgrading-an-existing-coolify-deployment).
 
 ## Key Source Files
 
@@ -96,7 +130,11 @@ Services with a database embed their SQL in `internal/<svc>/migrations/` (`embed
 |------|---------|
 | `go.mod` | The single module for all services |
 | `pkg/platform/*.go` | Infrastructure wiring (auth, events, tasks, lock, HTTP clients) |
+| `pkg/platform/httpclient.go` | HTTP client, breaker, gokit envelope decoding |
+| `pkg/platform/auth.go` | Auth middleware and the revocation Redis |
 | `internal/*/app/app.go` | Wiring per service |
+| `internal/asset/gateway/price/price.go` | Example of a service-call gateway |
+| `deploy/docker-compose.yml` | Local stack: per-service Postgres and Redis |
 | `cmd/*/main.go` | Service entrypoints |
 | `config/<env>/*.yaml` | Per-environment configuration |
 | `deploy/Dockerfile` | Shared service image (`SERVICE`, `PORT` args) |
