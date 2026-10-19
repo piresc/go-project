@@ -201,12 +201,13 @@ if [ "${E2E_DOCKER:-0}" = "1" ]; then
   assert_eq "price-service Redis DB has the price cache" "1" "$(compose exec -T redis redis-cli -n 0 EXISTS prices:quotes | tr -d '\r')"
 
   # The denied read makes Postgres log an ERROR on its side, by design.
-  DENIED="$(compose exec -T -e PGPASSWORD="${ASSET_DB_PASSWORD:-asset-change-me}" postgres psql -h 127.0.0.1 -U asset_svc -d app -c 'SELECT 1 FROM users.users LIMIT 1' 2>&1 || true)"
+  # Role passwords come from the postgres container's own env, not the host's.
+  DENIED="$(compose exec -T postgres sh -c 'PGPASSWORD="$ASSET_DB_PASSWORD" psql -h 127.0.0.1 -U asset_svc -d "$POSTGRES_DB" -c "SELECT 1 FROM users.users LIMIT 1"' 2>&1 || true)"
   case "${DENIED}" in
     *"permission denied"*) pass "asset_svc cannot read the users schema" ;;
     *) fail "asset_svc cannot read the users schema" "permission denied" "${DENIED}" ;;
   esac
-  OWN="$(compose exec -T -e PGPASSWORD="${USER_DB_PASSWORD:-user-change-me}" postgres psql -h 127.0.0.1 -U user_svc -d app -tAc 'SELECT count(*) >= 1 FROM users LIMIT 1' 2>&1 || true)"
+  OWN="$(compose exec -T postgres sh -c 'PGPASSWORD="$USER_DB_PASSWORD" psql -h 127.0.0.1 -U user_svc -d "$POSTGRES_DB" -tAc "SELECT count(*) >= 1 FROM users LIMIT 1"' 2>&1 || true)"
   assert_eq "user_svc reads its own table through search_path" "t" "$(echo "${OWN}" | tr -d '\r')"
 
   section "Circuit breaker"

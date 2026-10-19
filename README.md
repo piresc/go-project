@@ -18,7 +18,7 @@ One Postgres database (`app`) holds a schema and login role per service, and one
 2. Fix the imports to `github.com/piresc/go-project/internal/<svc>/...`.
 3. Rename the service in `internal/<svc>/app/app.go` and add `config/{local,production}/<name>-service.yaml` with a free port.
 4. Add a service block to the compose files using `deploy/Dockerfile` with `SERVICE` and `PORT` build args. `make build` picks up `cmd/*` automatically.
-5. If it has a database, add a role and schema to `deploy/bootstrap/init-db.sh`, run `make db-init` on an existing volume, then add the password env, `DB_*` env and `database:` / `redis.db` YAML (see "Add a service with a database" in docs/ARCHITECTURE.md). Pick a free Redis DB number.
+5. If it has a database, copy the whole `user_svc` block in `deploy/bootstrap/init-db.sh` (including `GRANT CONNECT ON DATABASE`) for the new role and schema. Add the password env to the `postgres` service in both compose files and the env examples, then run `make db-init` on an existing volume (the script aborts without the password). Finally add the service's `DB_*` env and `database:` / `redis.db` YAML (see "Add a service with a database" in docs/ARCHITECTURE.md). Pick a free Redis DB number.
 6. Run `go mod tidy` at the repo root.
 
 ## Run locally

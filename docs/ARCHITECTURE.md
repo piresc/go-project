@@ -134,9 +134,9 @@ Services with a database embed their SQL in `internal/<svc>/migrations/` (`embed
 
 ### Add a service with a database
 
-1. Add the service's role and schema to `deploy/bootstrap/init-db.sh` (a password env var such as `<NAME>_DB_PASSWORD`, `CREATE ROLE`, `CREATE SCHEMA ... AUTHORIZATION`, `ALTER ROLE ... SET search_path`).
-2. On an existing volume, rebuild and run `make db-init` (locally) or `docker exec <postgres-container> bash /docker-entrypoint-initdb.d/00-init-db.sh` (Coolify). The script is idempotent. A fresh volume runs it automatically.
-3. Add the password env to both compose files (`postgres` gets it for the init script; the service gets `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE: app`) and to the env examples.
+1. Add the service's role and schema to `deploy/bootstrap/init-db.sh` by copying the whole `user_svc` block, including `GRANT CONNECT ON DATABASE` (a password env var such as `<NAME>_DB_PASSWORD`, `CREATE ROLE`, `GRANT CONNECT`, `CREATE SCHEMA ... AUTHORIZATION`, `ALTER ROLE ... SET search_path`).
+2. Add the password env to the `postgres` service in both compose files and to the env examples, and give the service `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE: app`. Do this before step 3: the script's `:?` guard aborts when the variable is missing.
+3. On an existing volume, rebuild and run `make db-init` (locally) or `docker exec <postgres-container> bash /docker-entrypoint-initdb.d/00-init-db.sh` (Coolify). The script is idempotent. A fresh volume runs it automatically.
 4. Set `database.*` and a free `redis.db` in `config/{local,production}/<svc>.yaml`.
 
 ## Key Source Files

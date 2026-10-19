@@ -166,10 +166,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d app"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:?POSTGRES_USER is required} -d app"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   # DB numbers: price-service 0 (asynq needs 0), user-service 1, asset-service 2.
   redis:

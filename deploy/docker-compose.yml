@@ -175,6 +175,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 30s
 
   # DB numbers: price-service 0 (asynq needs 0), user-service 1, asset-service 2.
   redis:
