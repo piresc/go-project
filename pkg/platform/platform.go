@@ -89,8 +89,8 @@ func New[S any](name string, opts ...Option) (*App[S], error) {
 	// shutdown happened, so Run does not shut down twice.
 	a.onStopNamed("hooks-done", func(context.Context) error { a.stopped.Store(true); return nil })
 
-	// Registered right after hooks-done, so it runs after every other hook,
-	// as the first step of closing infrastructure.
+	// Hooks run newest first. Registered right after hooks-done, this one runs
+	// after every capability hook and just before hooks-done, which is last.
 	a.onStop(func(context.Context) error {
 		if a.revocationRedis == nil {
 			return nil

@@ -2,10 +2,10 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 
@@ -78,7 +78,7 @@ func (u *PortfolioUsecase) Holdings(ctx context.Context, userID string) ([]domai
 
 // SetHolding sets the quantity held of symbol, creating the portfolio first
 // if needed. Adding a new symbol beyond MaxHoldings returns ErrTooManyHoldings;
-// the check is read-then-write, so concurrent adds can overshoot slightly.
+// the repository enforces the cap atomically, so concurrent adds cannot exceed it.
 func (u *PortfolioUsecase) SetHolding(ctx context.Context, userID, symbol string, qty float64) (*domain.Holding, error) {
 	if _, err := uuid.Parse(userID); err != nil {
 		return nil, fmt.Errorf("user id %q: %w", userID, ErrInvalidInput)
@@ -93,14 +93,10 @@ func (u *PortfolioUsecase) SetHolding(ctx context.Context, userID, symbol string
 	if err := u.repo.Create(ctx, userID); err != nil {
 		return nil, fmt.Errorf("create portfolio: %w", err)
 	}
-	existing, err := u.repo.ListHoldings(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("list holdings: %w", err)
-	}
-	if len(existing) >= MaxHoldings && !slices.ContainsFunc(existing, func(h domain.Holding) bool { return h.Symbol == symbol }) {
-		return nil, ErrTooManyHoldings
-	}
-	if err := u.repo.UpsertHolding(ctx, userID, symbol, qty); err != nil {
+	if err := u.repo.UpsertHoldingCapped(ctx, userID, symbol, qty, MaxHoldings); err != nil {
+		if errors.Is(err, ErrTooManyHoldings) {
+			return nil, ErrTooManyHoldings
+		}
 		return nil, fmt.Errorf("upsert holding: %w", err)
 	}
 	return &domain.Holding{Symbol: symbol, Quantity: qty}, nil

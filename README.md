@@ -72,11 +72,17 @@ Notes:
 
 Older deployments ran one `postgres` container (databases `users` and `assets`) and one `redis`. The new compose file splits them. `postgres-user` reuses the old `${APP_NAME:-go-project}-postgres-data` volume; `postgres-asset` starts empty and asset-service migrates it on boot. Move the asset data over like this:
 
-1. Back up: run `pg_dumpall` from the old `postgres` container and store the dump off the server.
+1. Back up: run `pg_dumpall -U "$POSTGRES_USER"` from the old `postgres` container and store the dump off the server.
 2. Stop the whole app in Coolify.
 3. Confirm that no old `postgres` or `redis` container is still running (`docker ps`). If one is left orphaned, remove it. Never let it and `postgres-user` run on the same volume.
 4. Deploy the new compose file. `postgres-user` comes up on the old volume; `postgres-asset` and the Redis containers start empty.
-5. Stop asset-service. Copy the data with `pg_dump --data-only -t portfolios -t assets -d assets` run in `postgres-user`, piped into `psql -d assets` in `postgres-asset` (the schema already exists from migrations).
-6. Start asset-service and check the data. Only then drop the `assets` database on `postgres-user`.
+5. Stop asset-service. Copy the data from `postgres-user` into `postgres-asset` (the schema already exists from migrations). The dump uses `INSERT ... ON CONFLICT DO NOTHING`, so rows asset-service already created are kept, and `--single-transaction` with `ON_ERROR_STOP` makes the load all or nothing. `sh -c` makes `$POSTGRES_USER` expand inside each container; use the real container names from `docker ps`:
+
+   ```bash
+   docker exec <postgres-user-container> sh -c 'pg_dump -U "$POSTGRES_USER" --data-only --inserts --on-conflict-do-nothing -t portfolios -t assets -d assets' \
+     | docker exec -i <postgres-asset-container> sh -c 'psql -U "$POSTGRES_USER" -v ON_ERROR_STOP=1 --single-transaction -d assets'
+   ```
+
+6. Compare row counts before you drop anything. Run `SELECT count(*) FROM portfolios` and `SELECT count(*) FROM assets` in database `assets` on both containers (for example `docker exec <container> sh -c 'psql -U "$POSTGRES_USER" -d assets -tAc "SELECT count(*) FROM portfolios"'`). The `postgres-asset` counts must be at least the `postgres-user` counts. Then start asset-service, check the data, and only then drop the `assets` database on `postgres-user`.
 
 Token revocations stored in the old Redis are lost in the cutover, so tokens revoked before it work again until they expire (at most `ACCESS_TOKEN_TTL`).

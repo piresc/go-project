@@ -45,14 +45,49 @@ func (r *PortfolioRepository) Create(ctx context.Context, userID string) error {
 	return nil
 }
 
-// UpsertHolding sets the quantity held of symbol. The portfolio must exist.
-func (r *PortfolioRepository) UpsertHolding(ctx context.Context, userID, symbol string, qty float64) error {
-	_, err := r.db.ExecContext(ctx,
+// UpsertHoldingCapped sets the quantity held of symbol. The portfolio must
+// exist. It locks the portfolio row for the transaction, so concurrent adds
+// for one user are serialised and the count check cannot be raced. A new
+// symbol when the user already holds limit holdings returns
+// usecase.ErrTooManyHoldings.
+func (r *PortfolioRepository) UpsertHoldingCapped(ctx context.Context, userID, symbol string, qty float64, limit int) (err error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var locked int
+	if err = tx.GetContext(ctx, &locked, `SELECT 1 FROM portfolios WHERE user_id = $1 FOR UPDATE`, userID); err != nil {
+		return fmt.Errorf("lock portfolio: %w", err)
+	}
+	var held bool
+	if err = tx.GetContext(ctx, &held,
+		`SELECT EXISTS (SELECT 1 FROM holdings WHERE user_id = $1 AND symbol = $2)`, userID, symbol); err != nil {
+		return fmt.Errorf("check holding: %w", err)
+	}
+	if !held {
+		var n int
+		if err = tx.GetContext(ctx, &n, `SELECT count(*) FROM holdings WHERE user_id = $1`, userID); err != nil {
+			return fmt.Errorf("count holdings: %w", err)
+		}
+		if n >= limit {
+			err = usecase.ErrTooManyHoldings
+			return err
+		}
+	}
+	if _, err = tx.ExecContext(ctx,
 		`INSERT INTO holdings (user_id, symbol, quantity) VALUES ($1, $2, $3)
 		 ON CONFLICT (user_id, symbol) DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = NOW()`,
-		userID, symbol, qty)
-	if err != nil {
+		userID, symbol, qty); err != nil {
 		return fmt.Errorf("upsert holding: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
 	}
 	return nil
 }

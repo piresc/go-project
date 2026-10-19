@@ -201,6 +201,7 @@ if [ "${E2E_DOCKER:-0}" = "1" ]; then
 
   section "Circuit breaker"
 
+  trap 'compose up -d --wait price-service >/dev/null 2>&1' EXIT
   compose stop price-service >/dev/null 2>&1
   STATUS="$(status_of -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/portfolio/value")"
   compose up -d --wait price-service >/dev/null 2>&1

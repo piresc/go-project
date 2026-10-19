@@ -119,6 +119,14 @@ func TestDecodeJSONBody_PlainJSON(t *testing.T) {
 	}
 }
 
+func TestDecodeJSONBody_UnknownStatusIsPlain(t *testing.T) {
+	// A status other than "success"/"error" is not an envelope.
+	var got struct{ X int }
+	if err := decodeJSONBody([]byte(`{"status":"OK","x":1}`), &got); err != nil || got.X != 1 {
+		t.Fatalf("got %+v, err %v", got, err)
+	}
+}
+
 func TestHTTPClient_EmptyBaseURL(t *testing.T) {
 	writeConfig(t, "service:\n  http_clients:\n    market:\n      base_url: \"\"\n")
 	_, err := New[struct{}]("svc")

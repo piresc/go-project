@@ -123,8 +123,9 @@ func (c *HTTPClient) GetJSON(ctx context.Context, endpoint string, out any) erro
 
 // decodeJSONBody unwraps the gokit API envelope when present: the
 // {"status","data","error"} form written by response.Success and
-// response.Error, or a {"success","data","error"} form. Other JSON is decoded
-// as is.
+// response.Error (status is "success" or "error"), or a
+// {"success","data","error"} form. Other JSON, including any other status
+// value, is decoded as is.
 func decodeJSONBody(body []byte, out any) error {
 	var env struct {
 		Status  *string         `json:"status"`
@@ -132,9 +133,12 @@ func decodeJSONBody(body []byte, out any) error {
 		Data    json.RawMessage `json:"data"`
 		Error   string          `json:"error"`
 	}
-	if json.Unmarshal(body, &env) == nil && (env.Status != nil || env.Success != nil) {
+	statusEnv := func() bool {
+		return env.Status != nil && (*env.Status == "success" || *env.Status == "error")
+	}
+	if json.Unmarshal(body, &env) == nil && (statusEnv() || env.Success != nil) {
 		ok := env.Success != nil && *env.Success
-		if env.Status != nil {
+		if statusEnv() {
 			ok = *env.Status == "success"
 		}
 		if !ok {

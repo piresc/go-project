@@ -80,6 +80,12 @@ Scheduled tasks: each schedule fires on wall-clock-aligned ticks and enqueues wi
 
 | Service | Route | Auth | Notes |
 |---------|-------|------|-------|
+| user-service | `POST /auth/google` | public | |
+| user-service | `POST /auth/apple` | public | |
+| user-service | `POST /auth/refresh` | public | body `{"refresh_token": "..."}` |
+| user-service | `POST /auth/logout` | required | |
+| user-service | `GET /users/me` | required | |
+| user-service | `PATCH /users/me` | required | |
 | asset-service | `GET /assets` | required | |
 | asset-service | `GET /portfolio` | required | portfolio plus `holdings` |
 | asset-service | `PUT /portfolio/holdings/{symbol}` | required | body `{"quantity": n}`; creates the portfolio if missing; 400 invalid, 409 over 50 holdings |

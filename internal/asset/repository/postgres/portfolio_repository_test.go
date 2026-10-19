@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -101,14 +102,14 @@ func TestPortfolioRepo_Holdings(t *testing.T) {
 		t.Fatalf("ListHoldings empty = %#v, %v", empty, err)
 	}
 
-	if err := repo.UpsertHolding(ctx, id, "MSFT", 1); err != nil {
-		t.Fatalf("UpsertHolding: %v", err)
+	if err := repo.UpsertHoldingCapped(ctx, id, "MSFT", 1, 50); err != nil {
+		t.Fatalf("UpsertHoldingCapped: %v", err)
 	}
-	if err := repo.UpsertHolding(ctx, id, "AAPL", 2); err != nil {
-		t.Fatalf("UpsertHolding: %v", err)
+	if err := repo.UpsertHoldingCapped(ctx, id, "AAPL", 2, 50); err != nil {
+		t.Fatalf("UpsertHoldingCapped: %v", err)
 	}
-	if err := repo.UpsertHolding(ctx, id, "AAPL", 3.5); err != nil {
-		t.Fatalf("UpsertHolding update: %v", err)
+	if err := repo.UpsertHoldingCapped(ctx, id, "AAPL", 3.5, 50); err != nil {
+		t.Fatalf("UpsertHoldingCapped update: %v", err)
 	}
 	got, err := repo.ListHoldings(ctx, id)
 	if err != nil {
@@ -132,14 +133,90 @@ func TestPortfolioRepo_HoldingConstraints(t *testing.T) {
 	ctx := context.Background()
 	const id = "33333333-3333-3333-3333-333333333333"
 
-	if err := repo.UpsertHolding(ctx, id, "AAPL", 1); err == nil {
-		t.Fatal("UpsertHolding without portfolio: want foreign key error")
+	if err := repo.UpsertHoldingCapped(ctx, id, "AAPL", 1, 50); err == nil {
+		t.Fatal("UpsertHoldingCapped without portfolio: want foreign key error")
 	}
 	if err := repo.Create(ctx, id); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := repo.UpsertHolding(ctx, id, "AAPL", 0); err == nil {
-		t.Fatal("UpsertHolding with zero quantity: want check violation")
+	if err := repo.UpsertHoldingCapped(ctx, id, "AAPL", 0, 50); err == nil {
+		t.Fatal("UpsertHoldingCapped with zero quantity: want check violation")
+	}
+}
+
+func fillHoldings(t *testing.T, repo *PortfolioRepository, id string, n int) {
+	t.Helper()
+	ctx := context.Background()
+	if err := repo.Create(ctx, id); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	for i := 0; i < n; i++ {
+		if err := repo.UpsertHoldingCapped(ctx, id, "S"+strconv.Itoa(i), 1, 50); err != nil {
+			t.Fatalf("seed holding %d: %v", i, err)
+		}
+	}
+}
+
+func TestPortfolioRepo_UpsertHoldingCappedLimit(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewPortfolioRepository(db)
+	ctx := context.Background()
+	const id = "55555555-5555-5555-5555-555555555555"
+
+	fillHoldings(t, repo, id, 50)
+	if err := repo.UpsertHoldingCapped(ctx, id, "NEW", 1, 50); !errors.Is(err, usecase.ErrTooManyHoldings) {
+		t.Fatalf("51st new symbol: want ErrTooManyHoldings, got %v", err)
+	}
+	if err := repo.UpsertHoldingCapped(ctx, id, "S0", 9, 50); err != nil {
+		t.Fatalf("update existing at limit: %v", err)
+	}
+	got, err := repo.ListHoldings(ctx, id)
+	if err != nil || len(got) != 50 {
+		t.Fatalf("holdings = %d, %v; want 50", len(got), err)
+	}
+}
+
+func TestPortfolioRepo_UpsertHoldingCappedConcurrent(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewPortfolioRepository(db)
+	ctx := context.Background()
+	const id = "66666666-6666-6666-6666-666666666666"
+
+	fillHoldings(t, repo, id, 49)
+
+	const workers = 10
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs <- repo.UpsertHoldingCapped(ctx, id, "N"+strconv.Itoa(i), 1, 50)
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+
+	var ok, full int
+	for err := range errs {
+		switch {
+		case err == nil:
+			ok++
+		case errors.Is(err, usecase.ErrTooManyHoldings):
+			full++
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if ok != 1 || full != workers-1 {
+		t.Fatalf("succeeded=%d rejected=%d, want 1 and %d", ok, full, workers-1)
+	}
+	var n int
+	if err := db.GetContext(ctx, &n, `SELECT COUNT(*) FROM holdings WHERE user_id = $1`, id); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 50 {
+		t.Fatalf("final holdings = %d, want 50", n)
 	}
 }
 
@@ -152,8 +229,8 @@ func TestPortfolioRepo_PortfolioDeleteCascadesHoldings(t *testing.T) {
 	if err := repo.Create(ctx, id); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := repo.UpsertHolding(ctx, id, "AAPL", 1); err != nil {
-		t.Fatalf("UpsertHolding: %v", err)
+	if err := repo.UpsertHoldingCapped(ctx, id, "AAPL", 1, 50); err != nil {
+		t.Fatalf("UpsertHoldingCapped: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `DELETE FROM portfolios WHERE user_id = $1`, id); err != nil {
 		t.Fatalf("delete portfolio: %v", err)

@@ -15,8 +15,10 @@ type PortfolioRepository interface {
 	Get(ctx context.Context, userID string) (*domain.Portfolio, error)
 	// Create is idempotent: creating an existing portfolio is a no-op.
 	Create(ctx context.Context, userID string) error
-	// UpsertHolding sets the quantity held of symbol.
-	UpsertHolding(ctx context.Context, userID, symbol string, qty float64) error
+	// UpsertHoldingCapped sets the quantity held of symbol. The portfolio must
+	// exist. In one transaction it returns ErrTooManyHoldings when symbol is
+	// new and the user already holds limit holdings.
+	UpsertHoldingCapped(ctx context.Context, userID, symbol string, qty float64, limit int) error
 	// DeleteHolding returns ErrNotFound when the user does not hold symbol.
 	DeleteHolding(ctx context.Context, userID, symbol string) error
 	// ListHoldings returns the user's holdings ordered by symbol.

@@ -43,8 +43,11 @@ func (f *fakePortfolioRepo) Create(_ context.Context, userID string) error {
 	return nil
 }
 
-func (f *fakePortfolioRepo) UpsertHolding(_ context.Context, _, symbol string, qty float64) error {
+func (f *fakePortfolioRepo) UpsertHoldingCapped(_ context.Context, _, symbol string, qty float64, limit int) error {
 	f.upserts++
+	if _, held := f.holdings[symbol]; !held && len(f.holdings) >= limit {
+		return ErrTooManyHoldings
+	}
 	f.holdings[symbol] = qty
 	return nil
 }

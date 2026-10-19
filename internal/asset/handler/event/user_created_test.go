@@ -20,7 +20,9 @@ func (s stubRepo) Get(context.Context, string) (*domain.Portfolio, error) {
 
 func (s stubRepo) Create(context.Context, string) error { return s.createErr }
 
-func (s stubRepo) UpsertHolding(context.Context, string, string, float64) error { return nil }
+func (s stubRepo) UpsertHoldingCapped(context.Context, string, string, float64, int) error {
+	return nil
+}
 
 func (s stubRepo) DeleteHolding(context.Context, string, string) error { return nil }
 
