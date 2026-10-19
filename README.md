@@ -72,7 +72,12 @@ Notes:
 
 Older deployments ran one `postgres` container (databases `users` and `assets`) and one `redis`. The new compose file splits them. `postgres-user` reuses the old `${APP_NAME:-go-project}-postgres-data` volume; `postgres-asset` starts empty and asset-service migrates it on boot. Move the asset data over like this:
 
-1. Back up: run `pg_dumpall -U "$POSTGRES_USER"` from the old `postgres` container and store the dump off the server.
+1. Back up the old `postgres` container and store the dump off the server. `sh -c` makes `$POSTGRES_USER` expand inside the container:
+
+   ```bash
+   docker exec <old-postgres-container> sh -c 'pg_dumpall -U "$POSTGRES_USER"' > backup.sql
+   ```
+
 2. Stop the whole app in Coolify.
 3. Confirm that no old `postgres` or `redis` container is still running (`docker ps`). If one is left orphaned, remove it. Never let it and `postgres-user` run on the same volume.
 4. Deploy the new compose file. `postgres-user` comes up on the old volume; `postgres-asset` and the Redis containers start empty.
