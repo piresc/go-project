@@ -14,7 +14,7 @@ logger:
   format: json
 
 redis:
-  host: redis-price
+  host: redis
   port: 6379
   db: 0
 

@@ -14,15 +14,15 @@ logger:
 database:
   host: localhost
   port: 5432
-  username: postgres
-  password: postgres
-  database: users
+  username: user_svc
+  password: user-change-me
+  database: app
   ssl_mode: disable
 
 redis:
   host: localhost
   port: 6379
-  db: 0
+  db: 1
 
 nats:
   enabled: true

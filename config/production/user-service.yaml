@@ -15,17 +15,17 @@ logger:
   format: json
 
 database:
-  host: postgres-user
+  host: postgres
   port: 5432
-  username: postgres
+  username: user_svc
   password: ""
-  database: users
+  database: app
   ssl_mode: disable
 
 redis:
-  host: redis-user
+  host: redis
   port: 6379
-  db: 0
+  db: 1
 
 nats:
   enabled: true

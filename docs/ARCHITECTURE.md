@@ -2,17 +2,19 @@
 
 ## Overview
 
-go-project is a set of Go services built on `github.com/piresc/gokit`. Each service owns its datastores (PostgreSQL, Redis). Services talk to each other through NATS JetStream for async events and through HTTP for synchronous reads. Only NATS is shared, because it is the bus. All infrastructure is wired once in `pkg/platform` and switched on by config.
+go-project is a set of Go services built on `github.com/piresc/gokit`. The stack runs one PostgreSQL database with a schema and a login role per service, and one Redis with a DB number per service. Services talk to each other through NATS JetStream for async events and through HTTP for synchronous reads. NATS, Postgres and Redis are shared containers, but never shared data: each service touches only its own schema and Redis DB. All infrastructure is wired once in `pkg/platform` and switched on by config.
 
 ## Service Boundaries
 
-| Service | Responsibility | Port | Postgres | Redis |
-|---------|---------------|------|----------|-------|
-| **user-service** | Authentication, user profiles, token management | 8084 | `postgres-user` (db `users`) | `redis-user` |
-| **asset-service** | Asset CRUD, per-user portfolio, holdings and valuation | 8082 | `postgres-asset` (db `assets`) | `redis-asset` |
-| **price-service** | Scheduled quote refresh, top performers, quotes | 8083 | None | `redis-price` |
+| Service | Responsibility | Port | Schema (role) | Redis DB |
+|---------|---------------|------|---------------|----------|
+| **user-service** | Authentication, user profiles, token management | 8084 | `users` (`user_svc`) | 1 |
+| **asset-service** | Asset CRUD, per-user portfolio, holdings and valuation | 8082 | `assets` (`asset_svc`) | 2 |
+| **price-service** | Scheduled quote refresh, top performers, quotes | 8083 | None | 0 |
 
-A service never connects to another service's database or Redis.
+All schemas live in the database `app` on the `postgres` container; all Redis DBs on the `redis` container.
+
+A service never reads another service's schema or Redis DB. Postgres enforces this: each role owns its schema, has its `search_path` set to it, and has no access to the others, so a cross-schema read fails with "permission denied". Redis isolation is by DB number only, which is a convention (no ACLs, because gokit has no Redis username).
 
 One Go module (`go.mod` at the repo root, `github.com/piresc/go-project`). Each service has an entrypoint under `cmd/<name>-service/` and its own tree under `internal/<svc>/` (`user`, `asset`, `price`). One `deploy/Dockerfile` builds any service via the `SERVICE` and `PORT` build args.
 
@@ -20,7 +22,7 @@ One Go module (`go.mod` at the repo root, `github.com/piresc/go-project`). Each 
 
 Tokens are RS256 JWTs. user-service signs them with the private key; every other service only holds the public key. `platform.App` builds `Auth` (and `OptionalAuth` for guest-readable routes) with a revocation store on the service's own Redis, so revoked token IDs are rejected, unless `service.auth.skip_revocation_check` is set (see below). There is no shared auth package inside this repo: gokit provides it.
 
-user-service revokes the token ID on logout (in its own `redis-user`) and enforces it. asset-service and price-service set `service.auth.skip_revocation_check: true`: they do not read user-service's Redis, so a revoked token is accepted there until it expires (`ACCESS_TOKEN_TTL`, 15m by default). With the flag set, `Revocations` is nil and a public key needs no Redis.
+user-service revokes the token ID on logout (in its own Redis DB, 1) and enforces it. asset-service and price-service set `service.auth.skip_revocation_check: true`: they do not read user-service's Redis, so a revoked token is accepted there until it expires (`ACCESS_TOKEN_TTL`, 15m by default). With the flag set, `Revocations` is nil and a public key needs no Redis.
 
 ## Layout
 
@@ -106,7 +108,7 @@ Follow these steps; the examples are real code to copy.
    - HTTP route: `handler/http/router.go`, `RegisterRoutes`. Example: `internal/asset/handler/http/portfolio_handler.go`.
    - Event: `handler/event/`, registered with `Events.Subscribe`. Example: `internal/asset/handler/event/user_created.go`.
    - Task: `handler/task/`, registered with `Tasks.Handle`. Example: `internal/price/handler/task/refresh.go`.
-   - Needs another service's data: add a gateway (see "Service calls (HTTP)") plus a `service.http_clients.<name>` entry. Never read that service's database or Redis. Example: `internal/asset/gateway/price`.
+   - Needs another service's data: add a gateway (see "Service calls (HTTP)") plus a `service.http_clients.<name>` entry. Never read that service's schema or Redis DB. Example: `internal/asset/gateway/price`.
 6. **One wiring line** in `internal/<svc>/app/app.go`: build the adapter and use case, then register the handler (`app.Events.Subscribe(...)`, `app.Tasks.Handle(...)`, `httptransport.RegisterRoutes(...)`). Examples: `internal/asset/app/app.go` (events, migrations), `internal/price/app/app.go` (tasks, lock, `HTTPClient`). Add the needed dependency to `platform.Require`.
 7. **Config keys**: in `config/local/<svc>.yaml` and `config/production/<svc>.yaml`: `nats.enabled` plus `service.events` (streams, consumers), `asynq.enabled` plus `service.tasks.schedules`, `service.http_clients.<name>`, `service.lock.ttl`, `service.auth.fail_open`, `service.auth.skip_revocation_check`, `auth.public_key_path`. Service-specific keys go in `internal/<svc>/app/config.go`.
 
@@ -118,15 +120,24 @@ Follow these steps; the examples are real code to copy.
 
 ## Caching Strategy (Redis)
 
-Each service has its own Redis (`redis-user`, `redis-asset`, `redis-price`).
+One Redis container; each service has its own DB number (price 0, user 1, asset 2).
 
-- **user-service** (`redis-user`): revoked access-token JTI set (TTL = token remaining life). Only user-service uses it.
-- **price-service** (`redis-price`): latest quotes under one key with no TTL, so the last good quotes survive a market outage; refreshed by the `price:refresh` task under a lock. `GET /prices/quotes` reads only this cache, never the market.
-- **asset-service** (`redis-asset`): wired for platform needs only; no application keys yet.
+At most one service may enable asynq per Redis. asynq requires DB 0 and all asynq services share it and the default queue, so a second one would take price-service's tasks.
+
+- **user-service** (DB 1): revoked access-token JTI set (TTL = token remaining life). Only user-service uses it.
+- **price-service** (DB 0): latest quotes under one key with no TTL, so the last good quotes survive a market outage; refreshed by the `price:refresh` task under a lock. `GET /prices/quotes` reads only this cache, never the market.
+- **asset-service** (DB 2): wired for platform needs only; no application keys yet.
 
 ## Migrations
 
-Services with a database embed their SQL in `internal/<svc>/migrations/` (`embed.FS`) and apply them at boot through `platform.WithMigrations`. Each service migrates only its own database; the schema is created on a fresh volume by `POSTGRES_DB` plus these migrations.
+Services with a database embed their SQL in `internal/<svc>/migrations/` (`embed.FS`) and apply them at boot through `platform.WithMigrations`. Each service migrates only its own schema. `deploy/bootstrap/init-db.sh` creates each service's role and schema on a fresh volume; the tables come from these migrations. SQL uses unqualified table names, resolved through the role's `search_path`, and golang-migrate's `schema_migrations` table lands in the service's own schema.
+
+### Add a service with a database
+
+1. Add the service's role and schema to `deploy/bootstrap/init-db.sh` (a password env var such as `<NAME>_DB_PASSWORD`, `CREATE ROLE`, `CREATE SCHEMA ... AUTHORIZATION`, `ALTER ROLE ... SET search_path`).
+2. On an existing volume, rebuild and run `make db-init` (locally) or `docker exec <postgres-container> bash /docker-entrypoint-initdb.d/00-init-db.sh` (Coolify). The script is idempotent. A fresh volume runs it automatically.
+3. Add the password env to both compose files (`postgres` gets it for the init script; the service gets `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE: app`) and to the env examples.
+4. Set `database.*` and a free `redis.db` in `config/{local,production}/<svc>.yaml`.
 
 ## Key Source Files
 
@@ -138,7 +149,8 @@ Services with a database embed their SQL in `internal/<svc>/migrations/` (`embed
 | `pkg/platform/auth.go` | Auth middleware and the revocation store (optional) |
 | `internal/*/app/app.go` | Wiring per service |
 | `internal/asset/gateway/price/price.go` | Example of a service-call gateway |
-| `deploy/docker-compose.yml` | Local stack: per-service Postgres and Redis |
+| `deploy/docker-compose.yml` | Local stack: one Postgres (schema per service) and one Redis (DB per service) |
 | `cmd/*/main.go` | Service entrypoints |
 | `config/<env>/*.yaml` | Per-environment configuration |
 | `deploy/Dockerfile` | Shared service image (`SERVICE`, `PORT` args) |
+| `deploy/bootstrap/init-db.sh` | Idempotent per-service Postgres role and schema setup |

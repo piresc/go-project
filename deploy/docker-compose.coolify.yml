@@ -49,13 +49,13 @@ services:
     restart: unless-stopped
     stop_grace_period: 35s
     environment:
-      DB_HOST: postgres-user
+      DB_HOST: postgres
       DB_PORT: 5432
-      DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER is required}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      DB_DATABASE: users
+      DB_USERNAME: user_svc
+      DB_PASSWORD: ${USER_DB_PASSWORD:?USER_DB_PASSWORD is required}
+      DB_DATABASE: app
       DB_SSL_MODE: disable
-      REDIS_HOST: redis-user
+      REDIS_HOST: redis
       REDIS_PORT: 6379
       NATS_URL: nats://nats:4222
       JWT_PRIVATE_KEY_PEM: ${JWT_PRIVATE_KEY_PEM:?JWT_PRIVATE_KEY_PEM is required}
@@ -74,9 +74,9 @@ services:
       retries: 10
       start_period: 10s
     depends_on:
-      postgres-user:
+      postgres:
         condition: service_healthy
-      redis-user:
+      redis:
         condition: service_healthy
       nats:
         condition: service_healthy
@@ -91,13 +91,13 @@ services:
     restart: unless-stopped
     stop_grace_period: 35s
     environment:
-      DB_HOST: postgres-asset
+      DB_HOST: postgres
       DB_PORT: 5432
-      DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER is required}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      DB_DATABASE: assets
+      DB_USERNAME: asset_svc
+      DB_PASSWORD: ${ASSET_DB_PASSWORD:?ASSET_DB_PASSWORD is required}
+      DB_DATABASE: app
       DB_SSL_MODE: disable
-      REDIS_HOST: redis-asset
+      REDIS_HOST: redis
       REDIS_PORT: 6379
       NATS_URL: nats://nats:4222
       JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:?JWT_PUBLIC_KEY_PEM is required}
@@ -111,9 +111,9 @@ services:
       retries: 10
       start_period: 10s
     depends_on:
-      postgres-asset:
+      postgres:
         condition: service_healthy
-      redis-asset:
+      redis:
         condition: service_healthy
       nats:
         condition: service_healthy
@@ -130,7 +130,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 35s
     environment:
-      REDIS_HOST: redis-price
+      REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:?JWT_PUBLIC_KEY_PEM is required}
       SERVICE_HTTP_CLIENTS_MARKET_BASE_URL: ${SERVICE_HTTP_CLIENTS_MARKET_BASE_URL:?SERVICE_HTTP_CLIENTS_MARKET_BASE_URL is required}
@@ -144,70 +144,35 @@ services:
       retries: 10
       start_period: 10s
     depends_on:
-      redis-price:
+      redis:
         condition: service_healthy
 
-  postgres-user:
-    image: postgres:15.14-bookworm
+  # One database (app) with a schema and login role per service. The init
+  # script runs on a fresh volume only; see the README for re-running it.
+  postgres:
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile.postgres
     restart: unless-stopped
     stop_grace_period: 35s
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: users
+      POSTGRES_DB: app
+      USER_DB_PASSWORD: ${USER_DB_PASSWORD:?USER_DB_PASSWORD is required}
+      ASSET_DB_PASSWORD: ${ASSET_DB_PASSWORD:?ASSET_DB_PASSWORD is required}
     expose:
       - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:?POSTGRES_USER is required} -d users"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d app"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  postgres-asset:
-    image: postgres:15.14-bookworm
-    restart: unless-stopped
-    stop_grace_period: 35s
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: assets
-    expose:
-      - "5432"
-    volumes:
-      - postgres_asset_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:?POSTGRES_USER is required} -d assets"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis-user:
-    image: redis:7.4.8-alpine
-    restart: unless-stopped
-    stop_grace_period: 35s
-    expose:
-      - "6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis-asset:
-    image: redis:7.4.8-alpine
-    restart: unless-stopped
-    stop_grace_period: 35s
-    expose:
-      - "6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis-price:
+  # DB numbers: price-service 0 (asynq needs 0), user-service 1, asset-service 2.
+  redis:
     image: redis:7.4.8-alpine
     restart: unless-stopped
     stop_grace_period: 35s
@@ -240,8 +205,7 @@ volumes:
     name: ${APP_NAME:-go-project}-nats-data
   postgres_data:
     # Do not rename: renaming starts the app with a fresh empty database.
-    # Never mount it from two containers.
-    name: ${APP_NAME:-go-project}-postgres-data
-  postgres_asset_data:
-    # Do not rename: renaming starts asset-service with a fresh empty database.
-    name: ${APP_NAME:-go-project}-postgres-asset-data
+    # Never mount it from two containers. The old per-service volumes are not
+    # used; the init script skips an already-initialised volume, so this one
+    # is new.
+    name: ${APP_NAME:-go-project}-postgres-app-data

@@ -5,7 +5,7 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing code. It defin
 Quick rules:
 - One Go module at the repo root (`github.com/piresc/go-project`). Services are `cmd/<service>/main.go` plus `internal/<svc>/`.
 - Infrastructure is wired only in `pkg/platform`; services use `platform.App` and never open DB, Redis, NATS or asynq themselves.
-- A service never connects to another service's database or Redis. Cross-service data goes through NATS events or HTTP (a `gateway/<callee>` adapter on `platform.HTTPClient`, see "Service calls (HTTP)").
+- A service never reads another service's Postgres schema or Redis DB (one shared Postgres and Redis; Postgres enforces it with per-service roles). At most one service may enable asynq per Redis. Cross-service data goes through NATS events or HTTP (a `gateway/<callee>` adapter on `platform.HTTPClient`, see "Service calls (HTTP)").
 - Build on `github.com/piresc/gokit` (bootstrap, middleware, response, auth). No Google Wire, no chi.
 - Log with the `slog` logger from bootstrap, never `log.Printf`.
 - Respond with `response.Success` / `response.Error`.

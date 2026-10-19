@@ -3,9 +3,10 @@ name: go-project
 # Local stack. Run via `make up` (needs `make keys` first). Optional overrides
 # go in deploy/.env (see .env.example).
 #
-# Each service owns its datastores: postgres-user/redis-user (user-service),
-# postgres-asset/redis-asset (asset-service), redis-price (price-service). No
-# service reads another service's database or Redis.
+# One Postgres database (app) with a schema and login role per service
+# (users/user_svc, assets/asset_svc), and one Redis with a DB number per service
+# (price 0, user 1, asset 2). No service reads another service's schema or
+# Redis DB; Postgres enforces it through the per-service roles.
 services:
   nginx:
     build:
@@ -30,13 +31,13 @@ services:
         PORT: 8084
     environment:
       APP_ENV: local
-      DB_HOST: postgres-user
+      DB_HOST: postgres
       DB_PORT: 5432
-      DB_USERNAME: ${POSTGRES_USER:-postgres}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-      DB_DATABASE: users
+      DB_USERNAME: user_svc
+      DB_PASSWORD: ${USER_DB_PASSWORD:-user-change-me}
+      DB_DATABASE: app
       DB_SSL_MODE: disable
-      REDIS_HOST: redis-user
+      REDIS_HOST: redis
       REDIS_PORT: 6379
       NATS_URL: nats://nats:4222
       JWT_PRIVATE_KEY_PATH: /keys/private.pem
@@ -57,9 +58,9 @@ services:
       start_period: 10s
     stop_grace_period: 35s
     depends_on:
-      postgres-user:
+      postgres:
         condition: service_healthy
-      redis-user:
+      redis:
         condition: service_healthy
       nats:
         condition: service_healthy
@@ -73,13 +74,13 @@ services:
         PORT: 8082
     environment:
       APP_ENV: local
-      DB_HOST: postgres-asset
+      DB_HOST: postgres
       DB_PORT: 5432
-      DB_USERNAME: ${POSTGRES_USER:-postgres}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-      DB_DATABASE: assets
+      DB_USERNAME: asset_svc
+      DB_PASSWORD: ${ASSET_DB_PASSWORD:-asset-change-me}
+      DB_DATABASE: app
       DB_SSL_MODE: disable
-      REDIS_HOST: redis-asset
+      REDIS_HOST: redis
       REDIS_PORT: 6379
       NATS_URL: nats://nats:4222
       JWT_PUBLIC_KEY_PATH: /keys/public.pem
@@ -95,9 +96,9 @@ services:
       start_period: 10s
     stop_grace_period: 35s
     depends_on:
-      postgres-asset:
+      postgres:
         condition: service_healthy
-      redis-asset:
+      redis:
         condition: service_healthy
       nats:
         condition: service_healthy
@@ -113,7 +114,7 @@ services:
         PORT: 8083
     environment:
       APP_ENV: local
-      REDIS_HOST: redis-price
+      REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_PUBLIC_KEY_PATH: /keys/public.pem
     volumes:
@@ -128,7 +129,7 @@ services:
       start_period: 10s
     stop_grace_period: 35s
     depends_on:
-      redis-price:
+      redis:
         condition: service_healthy
       market-mock:
         condition: service_started
@@ -152,61 +153,31 @@ services:
     volumes:
       - lgtm_data:/data
 
-  # POSTGRES_DB creates the service's database on a fresh volume; schemas come
-  # from the service's own migrations on startup.
-  postgres-user:
-    image: postgres:15.14-bookworm
+  # The init script creates a login role and a schema per service on a fresh
+  # volume (`make db-init` re-runs it); tables come from each service's own
+  # migrations on startup.
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-      POSTGRES_DB: users
+      POSTGRES_DB: app
+      USER_DB_PASSWORD: ${USER_DB_PASSWORD:-user-change-me}
+      ASSET_DB_PASSWORD: ${ASSET_DB_PASSWORD:-asset-change-me}
     expose:
       - "5432"
     volumes:
-      - postgres_user_data:/var/lib/postgresql/data
+      - postgres_app_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d users"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d app"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  postgres-asset:
-    image: postgres:15.14-bookworm
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-      POSTGRES_DB: assets
-    expose:
-      - "5432"
-    volumes:
-      - postgres_asset_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d assets"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  redis-user:
-    image: redis:7.4.8-alpine
-    expose:
-      - "6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis-asset:
-    image: redis:7.4.8-alpine
-    expose:
-      - "6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis-price:
+  # DB numbers: price-service 0 (asynq needs 0), user-service 1, asset-service 2.
+  redis:
     image: redis:7.4.8-alpine
     expose:
       - "6379"
@@ -232,5 +203,4 @@ services:
 volumes:
   lgtm_data:
   nats_data:
-  postgres_user_data:
-  postgres_asset_data:
+  postgres_app_data:

@@ -14,17 +14,17 @@ logger:
   format: json
 
 database:
-  host: postgres-asset
+  host: postgres
   port: 5432
-  username: postgres
+  username: asset_svc
   password: ""
-  database: assets
+  database: app
   ssl_mode: disable
 
 redis:
-  host: redis-asset
+  host: redis
   port: 6379
-  db: 0
+  db: 2
 
 nats:
   enabled: true
