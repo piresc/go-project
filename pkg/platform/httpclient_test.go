@@ -187,6 +187,52 @@ func TestHTTPClient_2xxErrorEnvelope(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_2xxErrorEnvelopeKeepsStatus(t *testing.T) {
+	srv, _ := countingServer(t, http.StatusCreated, `{"success":false,"error":{"code":"ERR_X","message":"boom"}}`)
+	c := newHTTPClient("svc", HTTPClientSettings{BaseURL: srv.URL}, nil)
+
+	var out struct{ N int }
+	var apiErr *httpclient.APIError
+	err := c.GetJSON(context.Background(), "/x", &out)
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusCreated {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestHTTPClient_NilOutDetectsErrorEnvelope(t *testing.T) {
+	srv, _ := countingServer(t, http.StatusOK, `{"success":false,"error":{"code":"ERR_X","message":"boom"}}`)
+	c := newHTTPClient("svc", HTTPClientSettings{BaseURL: srv.URL}, nil)
+
+	var apiErr *httpclient.APIError
+	err := c.GetJSON(context.Background(), "/x", nil)
+	if !errors.As(err, &apiErr) || apiErr.Code != "ERR_X" {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestHTTPClient_4xxBodyReadErrorDoesNotTrip(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("short"))
+	}))
+	t.Cleanup(srv.Close)
+	c := newHTTPClient("svc", HTTPClientSettings{BaseURL: srv.URL, FailureThreshold: 2}, nil)
+
+	for i := 0; i < 5; i++ {
+		var apiErr *httpclient.APIError
+		err := c.GetJSON(context.Background(), "/x", nil)
+		if errors.Is(err, ErrUnavailable) {
+			t.Fatalf("call %d: breaker opened on a 4xx", i)
+		}
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+			t.Fatalf("call %d: want 404 APIError, got %v", i, err)
+		}
+	}
+}
+
 func TestHTTPClient_EmptyBaseURL(t *testing.T) {
 	writeConfig(t, "service:\n  http_clients:\n    market:\n      base_url: \"\"\n")
 	_, err := New[struct{}]("svc")

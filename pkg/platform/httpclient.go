@@ -93,18 +93,21 @@ func isSuccessful(err error) bool {
 // above, or a success:false body, returns a *httpclient.APIError. A nil out
 // discards the body. While the breaker is open it returns ErrUnavailable.
 func (c *HTTPClient) GetJSON(ctx context.Context, endpoint string, out any) error {
+	status := http.StatusOK
 	body, err := c.breaker.Execute(func() ([]byte, error) {
 		resp, err := c.client.Do(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = resp.Body.Close() }()
-		data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
-		if err != nil {
-			return nil, err
-		}
+		status = resp.StatusCode
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+		// A 4xx is the caller's fault even when its body cannot be read.
 		if resp.StatusCode >= http.StatusBadRequest {
 			return nil, apiError(resp.StatusCode, data)
+		}
+		if readErr != nil {
+			return nil, readErr
 		}
 		return data, nil
 	})
@@ -114,10 +117,7 @@ func (c *HTTPClient) GetJSON(ctx context.Context, endpoint string, out any) erro
 	case err != nil:
 		return fmt.Errorf("http client %s: GET %s: %w", c.name, endpoint, err)
 	}
-	if out == nil {
-		return nil
-	}
-	return decodeJSONBody(http.StatusOK, body, out)
+	return decodeJSONBody(status, body, out)
 }
 
 // envelope is the gokit response body.
@@ -155,10 +155,13 @@ func decodeJSONBody(status int, body []byte, out any) error {
 		if !*env.Success {
 			return apiError(status, body)
 		}
-		if len(env.Data) == 0 {
+		if out == nil || len(env.Data) == 0 {
 			return nil
 		}
 		body = env.Data
+	}
+	if out == nil {
+		return nil
 	}
 	if err := json.Unmarshal(body, out); err != nil {
 		return fmt.Errorf("decode JSON response: %w", err)
