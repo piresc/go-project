@@ -147,6 +147,66 @@ done
 assert_eq "GET /prices/top-performers returns 5 items" "5" "$(echo "${RESP}" | jq -r '.data | length')"
 assert_eq "GET /prices/top-performers first item is highest change_pct" "${EXPECTED_TOP}" "$(echo "${RESP}" | jq -r '.data[0].symbol')"
 
+RAW="$(curl -s -w '\n%{http_code}' "${BASE_URL}/api/v1/prices/quotes?symbols=NVDA,AAPL")"
+STATUS="$(echo "${RAW}" | tail -n1)"
+RESP="$(echo "${RAW}" | sed '$d')"
+assert_eq "GET /prices/quotes status" "200" "${STATUS}"
+assert_eq "GET /prices/quotes returns 2 quotes" "2" "$(echo "${RESP}" | jq -r '.data | length')"
+assert_eq "GET /prices/quotes keeps requested order" "NVDA,AAPL" "$(echo "${RESP}" | jq -r '[.data[].symbol] | join(",")')"
+NVDA_PRICE="$(echo "${RESP}" | jq -r '.data[0].price')"
+
+STATUS="$(status_of "${BASE_URL}/api/v1/prices/quotes")"
+assert_eq "GET /prices/quotes without symbols status" "400" "${STATUS}"
+
+section "Holdings"
+
+PUT_JSON() {
+  curl -s -w '\n%{http_code}' -X PUT "${BASE_URL}/api/v1/portfolio/holdings/$1" -H "${AUTH_HEADER}" -H "Content-Type: application/json" -d "$2"
+}
+
+RAW="$(PUT_JSON NVDA '{"quantity":2}')"
+assert_eq "PUT /portfolio/holdings/NVDA status" "200" "$(echo "${RAW}" | tail -n1)"
+
+RAW="$(PUT_JSON NVDA '{"quantity":0}')"
+assert_eq "PUT /portfolio/holdings/NVDA quantity 0 status" "400" "$(echo "${RAW}" | tail -n1)"
+
+RESP="$(curl -s -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/portfolio")"
+assert_eq "GET /portfolio includes NVDA holding" "NVDA" "$(echo "${RESP}" | jq -r '.data.holdings[] | select(.symbol == "NVDA") | .symbol')"
+
+RAW="$(curl -s -w '\n%{http_code}' -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/portfolio/value")"
+STATUS="$(echo "${RAW}" | tail -n1)"
+RESP="$(echo "${RAW}" | sed '$d')"
+assert_eq "GET /portfolio/value status" "200" "${STATUS}"
+assert_eq "GET /portfolio/value total is 2 x NVDA price" "$(awk -v p="${NVDA_PRICE}" 'BEGIN { printf "%.2f", 2 * p }')" "$(echo "${RESP}" | jq -r '.data.total' | awk '{ printf "%.2f", $1 }')"
+
+RAW="$(PUT_JSON ZZZZ '{"quantity":1}')"
+assert_eq "PUT /portfolio/holdings/ZZZZ status" "200" "$(echo "${RAW}" | tail -n1)"
+RESP="$(curl -s -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/portfolio/value")"
+assert_eq "GET /portfolio/value lists ZZZZ as unpriced" "ZZZZ" "$(echo "${RESP}" | jq -r '.data.unpriced[]')"
+
+STATUS="$(status_of -X DELETE -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/portfolio/holdings/ZZZZ")"
+assert_eq "DELETE /portfolio/holdings/ZZZZ status" "204" "${STATUS}"
+STATUS="$(status_of -X DELETE -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/portfolio/holdings/ZZZZ")"
+assert_eq "DELETE /portfolio/holdings/ZZZZ again status" "404" "${STATUS}"
+
+# These checks need the local compose stack, so they are skipped for remote runs.
+if [ "${E2E_DOCKER:-0}" = "1" ]; then
+  COMPOSE_FILE_PATH="$(dirname "${BASH_SOURCE[0]}")/docker-compose.yml"
+  compose() { docker compose -f "${COMPOSE_FILE_PATH}" "$@"; }
+
+  section "Datastore isolation"
+
+  assert_eq "asset-service Redis has no price cache" "0" "$(compose exec -T redis-asset redis-cli EXISTS prices:quotes | tr -d '\r')"
+  assert_eq "price-service Redis has the price cache" "1" "$(compose exec -T redis-price redis-cli EXISTS prices:quotes | tr -d '\r')"
+
+  section "Circuit breaker"
+
+  compose stop price-service >/dev/null 2>&1
+  STATUS="$(status_of -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/portfolio/value")"
+  compose up -d --wait price-service >/dev/null 2>&1
+  assert_eq "GET /portfolio/value with price-service down status" "503" "${STATUS}"
+fi
+
 section "Logout"
 
 RESP="$(curl -s -X POST "${BASE_URL}/api/v1/auth/logout" -H "${AUTH_HEADER}")"
@@ -157,5 +217,9 @@ STATUS="$(status_of -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/users/me")"
 assert_eq "GET /users/me after logout status" "401" "${STATUS}"
 RESP="$(curl -s -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/users/me")"
 assert_eq "GET /users/me after logout message" "token revoked" "$(echo "${RESP}" | jq -r '.error')"
+
+# asset-service checks revocation against user-service's Redis (split stores).
+STATUS="$(status_of -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/portfolio")"
+assert_eq "GET /portfolio after logout status" "401" "${STATUS}"
 
 printf '\nE2E complete (%d/%d checks passed)\n' "${PASS}" "${TOTAL}"

@@ -14,7 +14,7 @@ logger:
   format: json
 
 database:
-  host: postgres
+  host: postgres-asset
   port: 5432
   username: postgres
   password: ""
@@ -22,7 +22,7 @@ database:
   ssl_mode: disable
 
 redis:
-  host: redis
+  host: redis-asset
   port: 6379
   db: 0
 
@@ -37,6 +37,11 @@ auth:
   public_key_pem: ""
 
 service:
+  auth:
+    # Read-only token-revocation lookups against user-service's Redis.
+    revocation_redis:
+      host: redis-user
+      port: 6379
   events:
     streams:
       - name: USERS

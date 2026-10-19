@@ -31,9 +31,13 @@ up:
 down:
 	$(COMPOSE) down -v
 
-# Local/test only. Never run against production.
+# Local/test only. Never run against production. The seed bypasses user.created,
+# so it also clears any portfolio of the seeded user (id from
+# seed-test-account.sql) in the asset database; holdings cascade.
 seed:
-	$(COMPOSE) exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d users' < deploy/bootstrap/seed-test-account.sql
+	$(COMPOSE) exec -T postgres-user sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d users' < deploy/bootstrap/seed-test-account.sql
+	echo "DELETE FROM portfolios WHERE user_id = '11111111-1111-1111-1111-111111111111';" | $(COMPOSE) exec -T postgres-asset sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d assets'
 
+# The e2e script also stops/starts containers and inspects Redis (E2E_DOCKER=1).
 e2e:
-	bash deploy/e2e_test.sh
+	E2E_DOCKER=1 bash deploy/e2e_test.sh

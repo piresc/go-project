@@ -22,9 +22,9 @@ A Go multi-service boilerplate built on [`github.com/piresc/gokit`](https://gith
 
 ```bash
 make keys    # RSA key pair in keys/ (git-ignored)
-make up      # build and start nginx, the three services, market-mock, otel-lgtm, postgres, redis, nats; waits for health
+make up      # build and start nginx, the three services, market-mock, otel-lgtm, per-service postgres and redis, nats; waits for health
 make seed    # insert the test account (local only, never production)
-make e2e     # run deploy/e2e_test.sh against http://localhost:8080
+make e2e     # run deploy/e2e_test.sh against http://localhost:8080 (E2E_DOCKER=1 enables the docker-based checks)
 make down    # stop the stack and remove volumes
 ```
 
@@ -64,5 +64,19 @@ The stack deploys as a single Coolify Docker Compose application using [`deploy/
 Notes:
 
 - The Traefik routers deliberately have no redirect-to-https middleware: with Cloudflare in Flexible mode (HTTP to origin) a forced redirect loops forever. They use priority 9000 to win over Coolify's generated routers.
-- The postgres volume is named `${APP_NAME:-go-project}-postgres-data`. Do not rename it unless you accept losing the data.
+- Each service owns its datastores: `postgres-user` / `redis-user` (user-service), `postgres-asset` / `redis-asset` (asset-service), `redis-price` (price-service). asset-service and price-service only read `redis-user`, to check token revocation.
+- The user database volume is named `${APP_NAME:-go-project}-postgres-data` and the asset database volume `${APP_NAME:-go-project}-postgres-asset-data`. Do not rename them unless you accept losing the data. The two Postgres containers must never mount the same volume.
 - Never run `make seed` or the seed SQL against production.
+
+### Upgrading an existing Coolify deployment
+
+Older deployments ran one `postgres` container (databases `users` and `assets`) and one `redis`. The new compose file splits them. `postgres-user` reuses the old `${APP_NAME:-go-project}-postgres-data` volume; `postgres-asset` starts empty and asset-service migrates it on boot. Move the asset data over like this:
+
+1. Back up: run `pg_dumpall` from the old `postgres` container and store the dump off the server.
+2. Stop the whole app in Coolify.
+3. Confirm that no old `postgres` or `redis` container is still running (`docker ps`). If one is left orphaned, remove it. Never let it and `postgres-user` run on the same volume.
+4. Deploy the new compose file. `postgres-user` comes up on the old volume; `postgres-asset` and the Redis containers start empty.
+5. Stop asset-service. Copy the data with `pg_dump --data-only -t portfolios -t assets -d assets` run in `postgres-user`, piped into `psql -d assets` in `postgres-asset` (the schema already exists from migrations).
+6. Start asset-service and check the data. Only then drop the `assets` database on `postgres-user`.
+
+Token revocations stored in the old Redis are lost in the cutover, so tokens revoked before it work again until they expire (at most `ACCESS_TOKEN_TTL`).

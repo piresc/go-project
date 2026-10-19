@@ -2,6 +2,11 @@ name: go-project
 
 # Local stack. Run via `make up` (needs `make keys` first). Optional overrides
 # go in deploy/.env (see .env.example).
+#
+# Each service owns its datastores: postgres-user/redis-user (user-service),
+# postgres-asset/redis-asset (asset-service), redis-price (price-service). The
+# one cross-service read is token revocation: asset and price check revoked
+# tokens against redis-user (SERVICE_AUTH_REVOCATION_REDIS_*).
 services:
   nginx:
     build:
@@ -26,13 +31,13 @@ services:
         PORT: 8084
     environment:
       APP_ENV: local
-      DB_HOST: postgres
+      DB_HOST: postgres-user
       DB_PORT: 5432
       DB_USERNAME: ${POSTGRES_USER:-postgres}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       DB_DATABASE: users
       DB_SSL_MODE: disable
-      REDIS_HOST: redis
+      REDIS_HOST: redis-user
       REDIS_PORT: 6379
       NATS_URL: nats://nats:4222
       JWT_PRIVATE_KEY_PATH: /keys/private.pem
@@ -53,9 +58,9 @@ services:
       start_period: 10s
     stop_grace_period: 35s
     depends_on:
-      postgres:
+      postgres-user:
         condition: service_healthy
-      redis:
+      redis-user:
         condition: service_healthy
       nats:
         condition: service_healthy
@@ -69,14 +74,16 @@ services:
         PORT: 8082
     environment:
       APP_ENV: local
-      DB_HOST: postgres
+      DB_HOST: postgres-asset
       DB_PORT: 5432
       DB_USERNAME: ${POSTGRES_USER:-postgres}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       DB_DATABASE: assets
       DB_SSL_MODE: disable
-      REDIS_HOST: redis
+      REDIS_HOST: redis-asset
       REDIS_PORT: 6379
+      SERVICE_AUTH_REVOCATION_REDIS_HOST: redis-user
+      SERVICE_AUTH_REVOCATION_REDIS_PORT: 6379
       NATS_URL: nats://nats:4222
       JWT_PUBLIC_KEY_PATH: /keys/public.pem
     volumes:
@@ -91,11 +98,15 @@ services:
       start_period: 10s
     stop_grace_period: 35s
     depends_on:
-      postgres:
+      postgres-asset:
         condition: service_healthy
-      redis:
+      redis-asset:
+        condition: service_healthy
+      redis-user:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      price-service:
         condition: service_healthy
 
   price-service:
@@ -107,8 +118,10 @@ services:
         PORT: 8083
     environment:
       APP_ENV: local
-      REDIS_HOST: redis
+      REDIS_HOST: redis-price
       REDIS_PORT: 6379
+      SERVICE_AUTH_REVOCATION_REDIS_HOST: redis-user
+      SERVICE_AUTH_REVOCATION_REDIS_PORT: 6379
       JWT_PUBLIC_KEY_PATH: /keys/public.pem
     volumes:
       - ../keys:/keys:ro
@@ -122,7 +135,9 @@ services:
       start_period: 10s
     stop_grace_period: 35s
     depends_on:
-      redis:
+      redis-price:
+        condition: service_healthy
+      redis-user:
         condition: service_healthy
       market-mock:
         condition: service_started
@@ -146,24 +161,61 @@ services:
     volumes:
       - lgtm_data:/data
 
-  postgres:
-    build:
-      context: .
-      dockerfile: Dockerfile.postgres
+  # POSTGRES_DB creates the service's database on a fresh volume; schemas come
+  # from the service's own migrations on startup.
+  postgres-user:
+    image: postgres:15.14-bookworm
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: users
     expose:
       - "5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_user_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d users"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  redis:
+  postgres-asset:
+    image: postgres:15.14-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: assets
+    expose:
+      - "5432"
+    volumes:
+      - postgres_asset_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d assets"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis-user:
+    image: redis:7.4.8-alpine
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-asset:
+    image: redis:7.4.8-alpine
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-price:
     image: redis:7.4.8-alpine
     expose:
       - "6379"
@@ -189,4 +241,5 @@ services:
 volumes:
   lgtm_data:
   nats_data:
-  postgres_data:
+  postgres_user_data:
+  postgres_asset_data:

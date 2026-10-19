@@ -38,6 +38,12 @@ auth:
   public_key_path: keys/public.pem
 
 service:
+  auth:
+    # Empty host: revocation checks use this service's own Redis. Compose sets
+    # SERVICE_AUTH_REVOCATION_REDIS_HOST=redis-user to read user-service's.
+    revocation_redis:
+      host: ""
+      port: 6379
   events:
     streams:
       - name: USERS

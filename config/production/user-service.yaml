@@ -15,7 +15,7 @@ logger:
   format: json
 
 database:
-  host: postgres
+  host: postgres-user
   port: 5432
   username: postgres
   password: ""
@@ -23,7 +23,7 @@ database:
   ssl_mode: disable
 
 redis:
-  host: redis
+  host: redis-user
   port: 6379
   db: 0
 

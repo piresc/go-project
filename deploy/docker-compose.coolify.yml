@@ -49,13 +49,13 @@ services:
     restart: unless-stopped
     stop_grace_period: 35s
     environment:
-      DB_HOST: postgres
+      DB_HOST: postgres-user
       DB_PORT: 5432
       DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER is required}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DB_DATABASE: users
       DB_SSL_MODE: disable
-      REDIS_HOST: redis
+      REDIS_HOST: redis-user
       REDIS_PORT: 6379
       NATS_URL: nats://nats:4222
       JWT_PRIVATE_KEY_PEM: ${JWT_PRIVATE_KEY_PEM:?JWT_PRIVATE_KEY_PEM is required}
@@ -74,9 +74,9 @@ services:
       retries: 10
       start_period: 10s
     depends_on:
-      postgres:
+      postgres-user:
         condition: service_healthy
-      redis:
+      redis-user:
         condition: service_healthy
       nats:
         condition: service_healthy
@@ -91,14 +91,16 @@ services:
     restart: unless-stopped
     stop_grace_period: 35s
     environment:
-      DB_HOST: postgres
+      DB_HOST: postgres-asset
       DB_PORT: 5432
       DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER is required}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       DB_DATABASE: assets
       DB_SSL_MODE: disable
-      REDIS_HOST: redis
+      REDIS_HOST: redis-asset
       REDIS_PORT: 6379
+      SERVICE_AUTH_REVOCATION_REDIS_HOST: redis-user
+      SERVICE_AUTH_REVOCATION_REDIS_PORT: 6379
       NATS_URL: nats://nats:4222
       JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:?JWT_PUBLIC_KEY_PEM is required}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -111,11 +113,15 @@ services:
       retries: 10
       start_period: 10s
     depends_on:
-      postgres:
+      postgres-asset:
         condition: service_healthy
-      redis:
+      redis-asset:
+        condition: service_healthy
+      redis-user:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      price-service:
         condition: service_healthy
 
   price-service:
@@ -128,8 +134,10 @@ services:
     restart: unless-stopped
     stop_grace_period: 35s
     environment:
-      REDIS_HOST: redis
+      REDIS_HOST: redis-price
       REDIS_PORT: 6379
+      SERVICE_AUTH_REVOCATION_REDIS_HOST: redis-user
+      SERVICE_AUTH_REVOCATION_REDIS_PORT: 6379
       JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:?JWT_PUBLIC_KEY_PEM is required}
       SERVICE_HTTP_CLIENTS_MARKET_BASE_URL: ${SERVICE_HTTP_CLIENTS_MARKET_BASE_URL:?SERVICE_HTTP_CLIENTS_MARKET_BASE_URL is required}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -142,29 +150,72 @@ services:
       retries: 10
       start_period: 10s
     depends_on:
-      redis:
+      redis-price:
+        condition: service_healthy
+      redis-user:
         condition: service_healthy
 
-  postgres:
-    build:
-      context: ./deploy
-      dockerfile: Dockerfile.postgres
+  postgres-user:
+    image: postgres:15.14-bookworm
     restart: unless-stopped
     stop_grace_period: 35s
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: users
     expose:
       - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:?POSTGRES_USER is required} -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:?POSTGRES_USER is required} -d users"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  redis:
+  postgres-asset:
+    image: postgres:15.14-bookworm
+    restart: unless-stopped
+    stop_grace_period: 35s
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: assets
+    expose:
+      - "5432"
+    volumes:
+      - postgres_asset_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:?POSTGRES_USER is required} -d assets"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-user:
+    image: redis:7.4.8-alpine
+    restart: unless-stopped
+    stop_grace_period: 35s
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-asset:
+    image: redis:7.4.8-alpine
+    restart: unless-stopped
+    stop_grace_period: 35s
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-price:
     image: redis:7.4.8-alpine
     restart: unless-stopped
     stop_grace_period: 35s
@@ -197,4 +248,9 @@ volumes:
     name: ${APP_NAME:-go-project}-nats-data
   postgres_data:
     # Do not rename: renaming starts the app with a fresh empty database.
+    # postgres-user keeps the volume the single `postgres` container used before
+    # the split. Never mount it from two containers.
     name: ${APP_NAME:-go-project}-postgres-data
+  postgres_asset_data:
+    # Do not rename: renaming starts asset-service with a fresh empty database.
+    name: ${APP_NAME:-go-project}-postgres-asset-data

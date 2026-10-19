@@ -14,7 +14,7 @@ logger:
   format: json
 
 redis:
-  host: redis
+  host: redis-price
   port: 6379
   db: 0
 
@@ -31,6 +31,11 @@ auth:
   public_key_pem: ""
 
 service:
+  auth:
+    # Read-only token-revocation lookups against user-service's Redis.
+    revocation_redis:
+      host: redis-user
+      port: 6379
   tasks:
     schedules:
       - task: price:refresh
