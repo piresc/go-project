@@ -20,6 +20,20 @@ type AuthSettings struct {
 	// FailOpen lets requests through when the revocation check errors.
 	// The default (false) answers 503 with Retry-After: 5.
 	FailOpen bool `yaml:"fail_open" mapstructure:"fail_open"`
+	// RevocationRedis is a separate Redis that only token revocation reads,
+	// for services whose own Redis is not the token issuer's. Used when host
+	// is set. To override a field from the environment
+	// (SERVICE_AUTH_REVOCATION_REDIS_HOST, ...) the key must be present in
+	// the YAML.
+	RevocationRedis RevocationRedisSettings `yaml:"revocation_redis" mapstructure:"revocation_redis"`
+}
+
+// RevocationRedisSettings addresses the revocation Redis.
+type RevocationRedisSettings struct {
+	Host     string `yaml:"host" mapstructure:"host"`
+	Port     int    `yaml:"port" mapstructure:"port"`
+	Password string `yaml:"password" mapstructure:"password"`
+	DB       int    `yaml:"db" mapstructure:"db"`
 }
 
 // serviceConfig is the type read from the "service:" key. Settings and the

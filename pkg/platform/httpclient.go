@@ -95,7 +95,7 @@ func isSuccessful(err error) bool {
 }
 
 // GetJSON GETs endpoint and decodes the JSON body into out. It understands the
-// gokit {"success", "data", "error"} envelope as well as plain JSON. A nil out
+// gokit envelope ({"status", "data", "error"} or {"success", ...}) as well as plain JSON. A nil out
 // discards the body. While the breaker is open it returns ErrUnavailable.
 func (c *HTTPClient) GetJSON(ctx context.Context, endpoint string, out any) error {
 	body, err := c.breaker.Execute(func() ([]byte, error) {
@@ -121,26 +121,29 @@ func (c *HTTPClient) GetJSON(ctx context.Context, endpoint string, out any) erro
 	return decodeJSONBody(body, out)
 }
 
-// decodeJSONBody unwraps the gokit API envelope when present.
+// decodeJSONBody unwraps the gokit API envelope when present: the
+// {"status","data","error"} form written by response.Success and
+// response.Error, or a {"success","data","error"} form. Other JSON is decoded
+// as is.
 func decodeJSONBody(body []byte, out any) error {
-	var raw map[string]json.RawMessage
-	if json.Unmarshal(body, &raw) == nil {
-		if _, ok := raw["success"]; ok {
-			var env struct {
-				Success bool            `json:"success"`
-				Data    json.RawMessage `json:"data"`
-				Error   string          `json:"error"`
-			}
-			if err := json.Unmarshal(body, &env); err == nil {
-				if !env.Success {
-					return fmt.Errorf("API error: %s", env.Error)
-				}
-				if len(env.Data) == 0 {
-					return nil
-				}
-				body = env.Data
-			}
+	var env struct {
+		Status  *string         `json:"status"`
+		Success *bool           `json:"success"`
+		Data    json.RawMessage `json:"data"`
+		Error   string          `json:"error"`
+	}
+	if json.Unmarshal(body, &env) == nil && (env.Status != nil || env.Success != nil) {
+		ok := env.Success != nil && *env.Success
+		if env.Status != nil {
+			ok = *env.Status == "success"
 		}
+		if !ok {
+			return fmt.Errorf("API error: %s", env.Error)
+		}
+		if len(env.Data) == 0 {
+			return nil
+		}
+		body = env.Data
 	}
 	if err := json.Unmarshal(body, out); err != nil {
 		return fmt.Errorf("decode JSON response: %w", err)

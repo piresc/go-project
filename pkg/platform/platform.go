@@ -17,6 +17,7 @@ import (
 	"github.com/piresc/gokit/auth"
 	"github.com/piresc/gokit/bootstrap"
 	"github.com/piresc/gokit/middleware"
+	gokitredis "github.com/piresc/gokit/redis"
 	"github.com/piresc/gokit/redislock"
 )
 
@@ -51,6 +52,9 @@ type App[S any] struct {
 
 	httpClients map[string]*HTTPClient
 
+	// revocationRedis is the dedicated revocation client, nil when unset.
+	revocationRedis *gokitredis.Client
+
 	stopTrace func(name string) // tests only, see options.stopTrace
 
 	mu      sync.Mutex
@@ -84,6 +88,15 @@ func New[S any](name string, opts ...Option) (*App[S], error) {
 	// Registered first, so it runs last of the hooks: it only records that a
 	// shutdown happened, so Run does not shut down twice.
 	a.onStopNamed("hooks-done", func(context.Context) error { a.stopped.Store(true); return nil })
+
+	// Registered right after hooks-done, so it runs after every other hook,
+	// as the first step of closing infrastructure.
+	a.onStop(func(context.Context) error {
+		if a.revocationRedis == nil {
+			return nil
+		}
+		return a.revocationRedis.Close()
+	})
 
 	if err := a.setup(name, &o); err != nil {
 		if serr := a.Shutdown(context.Background()); serr != nil {

@@ -5,8 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/piresc/gokit/response"
 )
 
 // countingServer answers every request with status and counts the requests.
@@ -89,6 +92,30 @@ func TestHTTPClient_DecodesEnvelope(t *testing.T) {
 	}
 	if out.N != 7 {
 		t.Fatalf("got %+v", out)
+	}
+}
+
+func TestDecodeJSONBody_GokitResponse(t *testing.T) {
+	ok := httptest.NewRecorder()
+	response.Success(ok, http.StatusOK, map[string]int{"n": 7})
+	var got struct{ N int }
+	if err := decodeJSONBody(ok.Body.Bytes(), &got); err != nil || got.N != 7 {
+		t.Fatalf("success: got %+v, err %v", got, err)
+	}
+
+	bad := httptest.NewRecorder()
+	response.Error(bad, http.StatusBadRequest, "no such symbol")
+	err := decodeJSONBody(bad.Body.Bytes(), &got)
+	if err == nil || !strings.Contains(err.Error(), "no such symbol") {
+		t.Fatalf("error envelope: got %v", err)
+	}
+}
+
+func TestDecodeJSONBody_PlainJSON(t *testing.T) {
+	// No envelope keys: decoded as is.
+	var got struct{ A int }
+	if err := decodeJSONBody([]byte(`{"a":3}`), &got); err != nil || got.A != 3 {
+		t.Fatalf("got %+v, err %v", got, err)
 	}
 }
 
