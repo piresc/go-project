@@ -12,4 +12,5 @@ type Deps struct {
 // RegisterRoutes mounts the price-service routes on mux.
 func RegisterRoutes(mux *http.ServeMux, d Deps) {
 	mux.Handle("GET /prices/top-performers", d.OptionalAuth(http.HandlerFunc(d.Prices.TopPerformers)))
+	mux.Handle("GET /prices/quotes", d.OptionalAuth(http.HandlerFunc(d.Prices.Quotes)))
 }

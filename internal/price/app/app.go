@@ -39,11 +39,12 @@ func New() (*App, error) {
 	quotes := cache.NewRedis(app.Redis)
 	refreshUC := usecase.NewRefreshUsecase(market.New(marketClient), quotes, lock.New(app.Locker), app.Logger)
 	topUC := usecase.NewTopUsecase(quotes)
+	quotesUC := usecase.NewQuotesUsecase(quotes)
 
 	app.Tasks.Handle(refreshTaskType, taskhandler.Refresh(refreshUC))
 	httptransport.RegisterRoutes(app.Mux, httptransport.Deps{
 		OptionalAuth: app.OptionalAuth,
-		Prices:       httptransport.NewPriceHandler(topUC, app.Logger),
+		Prices:       httptransport.NewPriceHandler(topUC, quotesUC, app.Logger),
 	})
 
 	return &App{app: app}, nil
