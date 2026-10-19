@@ -80,3 +80,56 @@ func TestAuth_RejectsRevoked(t *testing.T) {
 		t.Fatalf("Retry-After = %q", got)
 	}
 }
+
+func writeKey(t *testing.T) (*rsa.PrivateKey, string) {
+	t.Helper()
+	priv, _, pubPEM := newKeyPair(t)
+	keyPath := filepath.Join(t.TempDir(), "public.pem")
+	if err := os.WriteFile(keyPath, pubPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return priv, keyPath
+}
+
+func TestAuth_SkipRevocationCheck(t *testing.T) {
+	priv, keyPath := writeKey(t)
+	mr := newMiniredis(t)
+	writeConfig(t, redisYAML(mr)+"auth:\n  public_key_path: "+keyPath+"\nservice:\n  auth:\n    skip_revocation_check: true\n")
+
+	a, err := New[struct{}]("svc", Require(Redis, AuthKeys))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Revocations != nil {
+		t.Fatal("Revocations must be nil when skip_revocation_check is true")
+	}
+	if a.Auth == nil || a.OptionalAuth == nil {
+		t.Fatal("Auth and OptionalAuth must be set")
+	}
+
+	tok, jti, _, err := auth.NewRSASigner(priv, "test", time.Hour).Sign("u-1", "a@b.c", "investor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Revoke the JTI in the service's own Redis: it must not be consulted.
+	if err := auth.NewRedisRevocationStore(a.Redis).Revoke(context.Background(), jti, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	h := a.Auth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	if w := serve(t, h, tok); w.Code != http.StatusOK {
+		t.Fatalf("revoked token with check skipped: status %d, want 200", w.Code)
+	}
+}
+
+func TestAuth_SkipRevocationCheckWithoutRedis(t *testing.T) {
+	_, keyPath := writeKey(t)
+	writeConfig(t, "auth:\n  public_key_path: "+keyPath+"\nservice:\n  auth:\n    skip_revocation_check: true\n")
+
+	a, err := New[struct{}]("svc", Require(AuthKeys))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Auth == nil || a.Revocations != nil {
+		t.Fatalf("Auth set=%v, Revocations=%v", a.Auth != nil, a.Revocations)
+	}
+}

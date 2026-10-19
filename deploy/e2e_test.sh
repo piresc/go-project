@@ -219,8 +219,9 @@ assert_eq "GET /users/me after logout status" "401" "${STATUS}"
 RESP="$(curl -s -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/users/me")"
 assert_eq "GET /users/me after logout message" "token revoked" "$(echo "${RESP}" | jq -r '.error')"
 
-# asset-service checks revocation against user-service's Redis (split stores).
+# asset-service does not check revocation by design (service.auth.skip_revocation_check);
+# the access token stays valid there until it expires.
 STATUS="$(status_of -H "${AUTH_HEADER}" "${BASE_URL}/api/v1/portfolio")"
-assert_eq "GET /portfolio after logout status" "401" "${STATUS}"
+assert_eq "GET /portfolio after logout status" "200" "${STATUS}"
 
 printf '\nE2E complete (%d/%d checks passed)\n' "${PASS}" "${TOTAL}"

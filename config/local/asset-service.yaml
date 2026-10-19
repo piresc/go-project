@@ -39,11 +39,8 @@ auth:
 
 service:
   auth:
-    # Empty host: revocation checks use this service's own Redis. Compose sets
-    # SERVICE_AUTH_REVOCATION_REDIS_HOST=redis-user to read user-service's.
-    revocation_redis:
-      host: ""
-      port: 6379
+    # Logout is enforced by user-service; elsewhere tokens live until expiry.
+    skip_revocation_check: true
   events:
     streams:
       - name: USERS

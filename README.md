@@ -64,30 +64,6 @@ The stack deploys as a single Coolify Docker Compose application using [`deploy/
 Notes:
 
 - The Traefik routers deliberately have no redirect-to-https middleware: with Cloudflare in Flexible mode (HTTP to origin) a forced redirect loops forever. They use priority 9000 to win over Coolify's generated routers.
-- Each service owns its datastores: `postgres-user` / `redis-user` (user-service), `postgres-asset` / `redis-asset` (asset-service), `redis-price` (price-service). asset-service and price-service only read `redis-user`, to check token revocation.
-- The user database volume is named `${APP_NAME:-go-project}-postgres-data` and the asset database volume `${APP_NAME:-go-project}-postgres-asset-data`. Do not rename them unless you accept losing the data. The two Postgres containers must never mount the same volume.
+- Each service owns its datastores: `postgres-user` / `redis-user` (user-service), `postgres-asset` / `redis-asset` (asset-service), `redis-price` (price-service).
+- The user database volume is named `${APP_NAME:-go-project}-postgres-data` and the asset database volume `${APP_NAME:-go-project}-postgres-asset-data`. Do not rename them unless you accept losing the data.
 - Never run `make seed` or the seed SQL against production.
-
-### Upgrading an existing Coolify deployment
-
-Older deployments ran one `postgres` container (databases `users` and `assets`) and one `redis`. The new compose file splits them. `postgres-user` reuses the old `${APP_NAME:-go-project}-postgres-data` volume; `postgres-asset` starts empty and asset-service migrates it on boot. Move the asset data over like this:
-
-1. Back up the old `postgres` container and store the dump off the server. `sh -c` makes `$POSTGRES_USER` expand inside the container:
-
-   ```bash
-   docker exec <old-postgres-container> sh -c 'pg_dumpall -U "$POSTGRES_USER"' > backup.sql
-   ```
-
-2. Stop the whole app in Coolify.
-3. Confirm that no old `postgres` or `redis` container is still running (`docker ps`). If one is left orphaned, remove it. Never let it and `postgres-user` run on the same volume.
-4. Deploy the new compose file. `postgres-user` comes up on the old volume; `postgres-asset` and the Redis containers start empty.
-5. Stop asset-service. Copy the data from `postgres-user` into `postgres-asset` (the schema already exists from migrations). The dump uses `INSERT ... ON CONFLICT DO NOTHING`, so rows asset-service already created are kept, and `--single-transaction` with `ON_ERROR_STOP` makes the load all or nothing. `sh -c` makes `$POSTGRES_USER` expand inside each container; use the real container names from `docker ps`:
-
-   ```bash
-   docker exec <postgres-user-container> sh -c 'pg_dump -U "$POSTGRES_USER" --data-only --inserts --on-conflict-do-nothing -t portfolios -t assets -d assets' \
-     | docker exec -i <postgres-asset-container> sh -c 'psql -U "$POSTGRES_USER" -v ON_ERROR_STOP=1 --single-transaction -d assets'
-   ```
-
-6. Compare row counts before you drop anything. Run `SELECT count(*) FROM portfolios` and `SELECT count(*) FROM assets` in database `assets` on both containers (for example `docker exec <container> sh -c 'psql -U "$POSTGRES_USER" -d assets -tAc "SELECT count(*) FROM portfolios"'`). The `postgres-asset` counts must be at least the `postgres-user` counts. Then start asset-service, check the data, and only then drop the `assets` database on `postgres-user`.
-
-Token revocations stored in the old Redis are lost in the cutover, so tokens revoked before it work again until they expire (at most `ACCESS_TOKEN_TTL`).

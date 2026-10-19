@@ -12,15 +12,15 @@ go-project is a set of Go services built on `github.com/piresc/gokit`. Each serv
 | **asset-service** | Asset CRUD, per-user portfolio, holdings and valuation | 8082 | `postgres-asset` (db `assets`) | `redis-asset` |
 | **price-service** | Scheduled quote refresh, top performers, quotes | 8083 | None | `redis-price` |
 
-A service never connects to another service's database or Redis. The one exception is token revocation (see Auth).
+A service never connects to another service's database or Redis.
 
 One Go module (`go.mod` at the repo root, `github.com/piresc/go-project`). Each service has an entrypoint under `cmd/<name>-service/` and its own tree under `internal/<svc>/` (`user`, `asset`, `price`). One `deploy/Dockerfile` builds any service via the `SERVICE` and `PORT` build args.
 
 ## Auth
 
-Tokens are RS256 JWTs. user-service signs them with the private key; every other service only holds the public key. `platform.App` builds `Auth` (and `OptionalAuth` for guest-readable routes) with a Redis revocation store, so revoked token IDs are rejected. There is no shared auth package inside this repo: gokit provides it.
+Tokens are RS256 JWTs. user-service signs them with the private key; every other service only holds the public key. `platform.App` builds `Auth` (and `OptionalAuth` for guest-readable routes) with a revocation store on the service's own Redis, so revoked token IDs are rejected. There is no shared auth package inside this repo: gokit provides it.
 
-user-service writes revoked token IDs to `redis-user`, and every service has to see them. asset-service and price-service therefore set `service.auth.revocation_redis` (host `redis-user`), which makes the platform open a separate, revocation-only client. Their own Redis is not used for revocation. This is the only cross-service datastore access, and it is read-only. In compose it can be overridden with `SERVICE_AUTH_REVOCATION_REDIS_HOST` and `SERVICE_AUTH_REVOCATION_REDIS_PORT`; the `revocation_redis` key must be present in the YAML for the env override to apply.
+user-service revokes the token ID on logout (in its own `redis-user`) and enforces it. asset-service and price-service set `service.auth.skip_revocation_check: true`: they do not read user-service's Redis, so a revoked token is accepted there until it expires (`ACCESS_TOKEN_TTL`, 15m by default). With the flag set, `Revocations` is nil and a public key needs no Redis.
 
 ## Layout
 
@@ -53,8 +53,8 @@ Design rules:
 |---|---|---|
 | `Service S` | always (`service:`) | the service's own settings |
 | `Middleware` | always | gokit middleware (e.g. `RequireRole`) |
-| `Auth`, `OptionalAuth` | `auth.public_key_path` or `JWT_PUBLIC_KEY_PEM` | RS256 middleware with Redis revocation; fail-closed (503) unless `service.auth.fail_open: true` |
-| `Revocations` | `service.auth.revocation_redis.host`, else Redis configured (`redis.host`) | `auth.RedisRevocationStore` on the revocation Redis when set, otherwise on `Redis` |
+| `Auth`, `OptionalAuth` | `auth.public_key_path` or `JWT_PUBLIC_KEY_PEM` | RS256 middleware with Redis revocation (skipped when `service.auth.skip_revocation_check: true`); fail-closed (503) unless `service.auth.fail_open: true` |
+| `Revocations` | Redis configured (`redis.host`) and `service.auth.skip_revocation_check` not true | `auth.RedisRevocationStore` on `Redis`; nil when the check is skipped |
 | `Events` | `nats.enabled` | JetStream: streams and consumers from `service.events`; JSON `Publish(ctx, subject, v, msgID)` with dedup, `Subscribe(consumer, handler)` |
 | `Tasks` | `asynq.enabled` (needs `redis.db: 0`) | asynq `Enqueue`, `Handle(type, fn)`, cron schedules from `service.tasks.schedules` |
 | `Locker` | Redis configured; `service.lock.ttl` (default 30s) | gokit redislock, key prefix = service name, no retry |
@@ -108,7 +108,7 @@ Follow these steps; the examples are real code to copy.
    - Task: `handler/task/`, registered with `Tasks.Handle`. Example: `internal/price/handler/task/refresh.go`.
    - Needs another service's data: add a gateway (see "Service calls (HTTP)") plus a `service.http_clients.<name>` entry. Never read that service's database or Redis. Example: `internal/asset/gateway/price`.
 6. **One wiring line** in `internal/<svc>/app/app.go`: build the adapter and use case, then register the handler (`app.Events.Subscribe(...)`, `app.Tasks.Handle(...)`, `httptransport.RegisterRoutes(...)`). Examples: `internal/asset/app/app.go` (events, migrations), `internal/price/app/app.go` (tasks, lock, `HTTPClient`). Add the needed dependency to `platform.Require`.
-7. **Config keys**: in `config/local/<svc>.yaml` and `config/production/<svc>.yaml`: `nats.enabled` plus `service.events` (streams, consumers), `asynq.enabled` plus `service.tasks.schedules`, `service.http_clients.<name>`, `service.lock.ttl`, `service.auth.fail_open`, `service.auth.revocation_redis`, `auth.public_key_path`. Service-specific keys go in `internal/<svc>/app/config.go`.
+7. **Config keys**: in `config/local/<svc>.yaml` and `config/production/<svc>.yaml`: `nats.enabled` plus `service.events` (streams, consumers), `asynq.enabled` plus `service.tasks.schedules`, `service.http_clients.<name>`, `service.lock.ttl`, `service.auth.fail_open`, `service.auth.skip_revocation_check`, `auth.public_key_path`. Service-specific keys go in `internal/<svc>/app/config.go`.
 
 ## Event Bus (NATS JetStream)
 
@@ -120,15 +120,13 @@ Follow these steps; the examples are real code to copy.
 
 Each service has its own Redis (`redis-user`, `redis-asset`, `redis-price`).
 
-- **user-service** (`redis-user`): revoked access-token JTI set (TTL = token remaining life). asset-service and price-service read it through `service.auth.revocation_redis`; they never write to it.
+- **user-service** (`redis-user`): revoked access-token JTI set (TTL = token remaining life). Only user-service uses it.
 - **price-service** (`redis-price`): latest quotes under one key with no TTL, so the last good quotes survive a market outage; refreshed by the `price:refresh` task under a lock. `GET /prices/quotes` reads only this cache, never the market.
 - **asset-service** (`redis-asset`): wired for platform needs only; no application keys yet.
 
 ## Migrations
 
 Services with a database embed their SQL in `internal/<svc>/migrations/` (`embed.FS`) and apply them at boot through `platform.WithMigrations`. Each service migrates only its own database; the schema is created on a fresh volume by `POSTGRES_DB` plus these migrations.
-
-Upgrading a Coolify deployment that still has the old single `postgres` and `redis` containers needs a one-off data copy. See [Upgrading an existing Coolify deployment](../README.md#upgrading-an-existing-coolify-deployment).
 
 ## Key Source Files
 
@@ -137,7 +135,7 @@ Upgrading a Coolify deployment that still has the old single `postgres` and `red
 | `go.mod` | The single module for all services |
 | `pkg/platform/*.go` | Infrastructure wiring (auth, events, tasks, lock, HTTP clients) |
 | `pkg/platform/httpclient.go` | HTTP client, breaker, gokit envelope decoding |
-| `pkg/platform/auth.go` | Auth middleware and the revocation Redis |
+| `pkg/platform/auth.go` | Auth middleware and the revocation store (optional) |
 | `internal/*/app/app.go` | Wiring per service |
 | `internal/asset/gateway/price/price.go` | Example of a service-call gateway |
 | `deploy/docker-compose.yml` | Local stack: per-service Postgres and Redis |

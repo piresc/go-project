@@ -32,10 +32,8 @@ auth:
 
 service:
   auth:
-    # Read-only token-revocation lookups against user-service's Redis.
-    revocation_redis:
-      host: redis-user
-      port: 6379
+    # Logout is enforced by user-service; elsewhere tokens live until expiry.
+    skip_revocation_check: true
   tasks:
     schedules:
       - task: price:refresh

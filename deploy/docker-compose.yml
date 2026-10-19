@@ -4,9 +4,8 @@ name: go-project
 # go in deploy/.env (see .env.example).
 #
 # Each service owns its datastores: postgres-user/redis-user (user-service),
-# postgres-asset/redis-asset (asset-service), redis-price (price-service). The
-# one cross-service read is token revocation: asset and price check revoked
-# tokens against redis-user (SERVICE_AUTH_REVOCATION_REDIS_*).
+# postgres-asset/redis-asset (asset-service), redis-price (price-service). No
+# service reads another service's database or Redis.
 services:
   nginx:
     build:
@@ -82,8 +81,6 @@ services:
       DB_SSL_MODE: disable
       REDIS_HOST: redis-asset
       REDIS_PORT: 6379
-      SERVICE_AUTH_REVOCATION_REDIS_HOST: redis-user
-      SERVICE_AUTH_REVOCATION_REDIS_PORT: 6379
       NATS_URL: nats://nats:4222
       JWT_PUBLIC_KEY_PATH: /keys/public.pem
     volumes:
@@ -102,8 +99,6 @@ services:
         condition: service_healthy
       redis-asset:
         condition: service_healthy
-      redis-user:
-        condition: service_healthy
       nats:
         condition: service_healthy
       price-service:
@@ -120,8 +115,6 @@ services:
       APP_ENV: local
       REDIS_HOST: redis-price
       REDIS_PORT: 6379
-      SERVICE_AUTH_REVOCATION_REDIS_HOST: redis-user
-      SERVICE_AUTH_REVOCATION_REDIS_PORT: 6379
       JWT_PUBLIC_KEY_PATH: /keys/public.pem
     volumes:
       - ../keys:/keys:ro
@@ -136,8 +129,6 @@ services:
     stop_grace_period: 35s
     depends_on:
       redis-price:
-        condition: service_healthy
-      redis-user:
         condition: service_healthy
       market-mock:
         condition: service_started

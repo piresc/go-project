@@ -17,7 +17,6 @@ import (
 	"github.com/piresc/gokit/auth"
 	"github.com/piresc/gokit/bootstrap"
 	"github.com/piresc/gokit/middleware"
-	gokitredis "github.com/piresc/gokit/redis"
 	"github.com/piresc/gokit/redislock"
 )
 
@@ -39,7 +38,8 @@ type App[S any] struct {
 	// OptionalAuth accepts requests with or without a token. Nil when no
 	// public key is configured.
 	OptionalAuth func(http.Handler) http.Handler
-	// Revocations checks and records revoked token IDs. Nil without Redis.
+	// Revocations checks and records revoked token IDs. Nil without Redis
+	// or when service.auth.skip_revocation_check is true.
 	Revocations *auth.RedisRevocationStore
 	// Events publishes and consumes JetStream events. Nil without NATS.
 	Events *Events
@@ -51,9 +51,6 @@ type App[S any] struct {
 	Locker *redislock.Locker
 
 	httpClients map[string]*HTTPClient
-
-	// revocationRedis is the dedicated revocation client, nil when unset.
-	revocationRedis *gokitredis.Client
 
 	stopTrace func(name string) // tests only, see options.stopTrace
 
@@ -88,15 +85,6 @@ func New[S any](name string, opts ...Option) (*App[S], error) {
 	// Registered first, so it runs last of the hooks: it only records that a
 	// shutdown happened, so Run does not shut down twice.
 	a.onStopNamed("hooks-done", func(context.Context) error { a.stopped.Store(true); return nil })
-
-	// Hooks run newest first. Registered right after hooks-done, this one runs
-	// after every capability hook and just before hooks-done, which is last.
-	a.onStop(func(context.Context) error {
-		if a.revocationRedis == nil {
-			return nil
-		}
-		return a.revocationRedis.Close()
-	})
 
 	if err := a.setup(name, &o); err != nil {
 		if serr := a.Shutdown(context.Background()); serr != nil {

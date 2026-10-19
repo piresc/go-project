@@ -99,8 +99,6 @@ services:
       DB_SSL_MODE: disable
       REDIS_HOST: redis-asset
       REDIS_PORT: 6379
-      SERVICE_AUTH_REVOCATION_REDIS_HOST: redis-user
-      SERVICE_AUTH_REVOCATION_REDIS_PORT: 6379
       NATS_URL: nats://nats:4222
       JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:?JWT_PUBLIC_KEY_PEM is required}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -116,8 +114,6 @@ services:
       postgres-asset:
         condition: service_healthy
       redis-asset:
-        condition: service_healthy
-      redis-user:
         condition: service_healthy
       nats:
         condition: service_healthy
@@ -136,8 +132,6 @@ services:
     environment:
       REDIS_HOST: redis-price
       REDIS_PORT: 6379
-      SERVICE_AUTH_REVOCATION_REDIS_HOST: redis-user
-      SERVICE_AUTH_REVOCATION_REDIS_PORT: 6379
       JWT_PUBLIC_KEY_PEM: ${JWT_PUBLIC_KEY_PEM:?JWT_PUBLIC_KEY_PEM is required}
       SERVICE_HTTP_CLIENTS_MARKET_BASE_URL: ${SERVICE_HTTP_CLIENTS_MARKET_BASE_URL:?SERVICE_HTTP_CLIENTS_MARKET_BASE_URL is required}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -151,8 +145,6 @@ services:
       start_period: 10s
     depends_on:
       redis-price:
-        condition: service_healthy
-      redis-user:
         condition: service_healthy
 
   postgres-user:
@@ -248,8 +240,7 @@ volumes:
     name: ${APP_NAME:-go-project}-nats-data
   postgres_data:
     # Do not rename: renaming starts the app with a fresh empty database.
-    # postgres-user keeps the volume the single `postgres` container used before
-    # the split. Never mount it from two containers.
+    # Never mount it from two containers.
     name: ${APP_NAME:-go-project}-postgres-data
   postgres_asset_data:
     # Do not rename: renaming starts asset-service with a fresh empty database.
