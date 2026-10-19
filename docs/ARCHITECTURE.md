@@ -18,7 +18,7 @@ One Go module (`go.mod` at the repo root, `github.com/piresc/go-project`). Each 
 
 ## Auth
 
-Tokens are RS256 JWTs. user-service signs them with the private key; every other service only holds the public key. `platform.App` builds `Auth` (and `OptionalAuth` for guest-readable routes) with a revocation store on the service's own Redis, so revoked token IDs are rejected. There is no shared auth package inside this repo: gokit provides it.
+Tokens are RS256 JWTs. user-service signs them with the private key; every other service only holds the public key. `platform.App` builds `Auth` (and `OptionalAuth` for guest-readable routes) with a revocation store on the service's own Redis, so revoked token IDs are rejected, unless `service.auth.skip_revocation_check` is set (see below). There is no shared auth package inside this repo: gokit provides it.
 
 user-service revokes the token ID on logout (in its own `redis-user`) and enforces it. asset-service and price-service set `service.auth.skip_revocation_check: true`: they do not read user-service's Redis, so a revoked token is accepted there until it expires (`ACCESS_TOKEN_TTL`, 15m by default). With the flag set, `Revocations` is nil and a public key needs no Redis.
 

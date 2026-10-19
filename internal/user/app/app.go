@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -37,6 +38,10 @@ func New() (*App, error) {
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if app.Revocations == nil {
+		return nil, fmt.Errorf("%s: token revocation is required (do not set service.auth.skip_revocation_check)", serviceName)
 	}
 
 	cfg := app.Config

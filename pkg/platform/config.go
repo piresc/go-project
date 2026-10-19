@@ -22,7 +22,8 @@ type AuthSettings struct {
 	FailOpen bool `yaml:"fail_open" mapstructure:"fail_open"`
 	// SkipRevocationCheck disables the revocation check and the Revocations
 	// store. For services that do not own the token issuer's Redis: a revoked
-	// token stays valid there until it expires. Default false.
+	// token stays valid there until it expires. The token issuer
+	// (user-service) must not set it. Default false.
 	SkipRevocationCheck bool `yaml:"skip_revocation_check" mapstructure:"skip_revocation_check"`
 }
 
