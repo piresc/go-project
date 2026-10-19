@@ -2,6 +2,7 @@
 package app
 
 import (
+	pricegateway "github.com/piresc/go-project/internal/asset/gateway/price"
 	eventhandler "github.com/piresc/go-project/internal/asset/handler/event"
 	httptransport "github.com/piresc/go-project/internal/asset/handler/http"
 	"github.com/piresc/go-project/internal/asset/migrations"
@@ -32,7 +33,11 @@ func New() (*App, error) {
 
 	repo := postgres.NewAssetRepository(app.DB)
 	uc := usecase.NewAssetUsecase(repo)
-	portfolioUC := usecase.NewPortfolioUsecase(postgres.NewPortfolioRepository(app.DB))
+	priceClient, err := app.HTTPClient("price")
+	if err != nil {
+		return nil, err
+	}
+	portfolioUC := usecase.NewPortfolioUsecase(postgres.NewPortfolioRepository(app.DB), pricegateway.New(priceClient))
 	httptransport.RegisterRoutes(app.Mux, httptransport.Deps{
 		Auth:      app.Auth,
 		Assets:    httptransport.NewAssetHandler(uc),

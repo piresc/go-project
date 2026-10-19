@@ -44,3 +44,42 @@ func (r *PortfolioRepository) Create(ctx context.Context, userID string) error {
 	}
 	return nil
 }
+
+// UpsertHolding sets the quantity held of symbol. The portfolio must exist.
+func (r *PortfolioRepository) UpsertHolding(ctx context.Context, userID, symbol string, qty float64) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO holdings (user_id, symbol, quantity) VALUES ($1, $2, $3)
+		 ON CONFLICT (user_id, symbol) DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = NOW()`,
+		userID, symbol, qty)
+	if err != nil {
+		return fmt.Errorf("upsert holding: %w", err)
+	}
+	return nil
+}
+
+// DeleteHolding removes the holding or returns usecase.ErrNotFound.
+func (r *PortfolioRepository) DeleteHolding(ctx context.Context, userID, symbol string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM holdings WHERE user_id = $1 AND symbol = $2`, userID, symbol)
+	if err != nil {
+		return fmt.Errorf("delete holding: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete holding: %w", err)
+	}
+	if n == 0 {
+		return usecase.ErrNotFound
+	}
+	return nil
+}
+
+// ListHoldings returns the user's holdings ordered by symbol.
+func (r *PortfolioRepository) ListHoldings(ctx context.Context, userID string) ([]domain.Holding, error) {
+	holdings := []domain.Holding{}
+	err := r.db.SelectContext(ctx, &holdings,
+		`SELECT symbol, quantity FROM holdings WHERE user_id = $1 ORDER BY symbol`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list holdings: %w", err)
+	}
+	return holdings, nil
+}

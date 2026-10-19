@@ -20,8 +20,14 @@ func (s stubRepo) Get(context.Context, string) (*domain.Portfolio, error) {
 
 func (s stubRepo) Create(context.Context, string) error { return s.createErr }
 
+func (s stubRepo) UpsertHolding(context.Context, string, string, float64) error { return nil }
+
+func (s stubRepo) DeleteHolding(context.Context, string, string) error { return nil }
+
+func (s stubRepo) ListHoldings(context.Context, string) ([]domain.Holding, error) { return nil, nil }
+
 func TestUserCreated_MalformedIsPermanent(t *testing.T) {
-	h := NewUserCreated(usecase.NewPortfolioUsecase(stubRepo{}))
+	h := NewUserCreated(usecase.NewPortfolioUsecase(stubRepo{}, nil))
 	cases := map[string][]byte{
 		"bad json":    []byte(`{`),
 		"bad user id": []byte(`{"user_id":"nope"}`),
@@ -37,7 +43,7 @@ func TestUserCreated_MalformedIsPermanent(t *testing.T) {
 
 func TestUserCreated_RepoErrorRetries(t *testing.T) {
 	boom := errors.New("db down")
-	h := NewUserCreated(usecase.NewPortfolioUsecase(stubRepo{createErr: boom}))
+	h := NewUserCreated(usecase.NewPortfolioUsecase(stubRepo{createErr: boom}, nil))
 	err := h.Handle(context.Background(), platform.Event{
 		Data: []byte(`{"user_id":"11111111-1111-1111-1111-111111111111"}`),
 	})
@@ -50,7 +56,7 @@ func TestUserCreated_RepoErrorRetries(t *testing.T) {
 }
 
 func TestUserCreated_Success(t *testing.T) {
-	h := NewUserCreated(usecase.NewPortfolioUsecase(stubRepo{}))
+	h := NewUserCreated(usecase.NewPortfolioUsecase(stubRepo{}, nil))
 	err := h.Handle(context.Background(), platform.Event{
 		Data: []byte(`{"user_id":"11111111-1111-1111-1111-111111111111","email":"a@b.c","role":"investor"}`),
 	})

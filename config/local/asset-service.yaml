@@ -46,3 +46,8 @@ service:
       - name: asset-service-user-created
         stream: USERS
         subject: user.created
+  http_clients:
+    price:
+      base_url: http://price-service:8083
+      # 3 attempts x 1s stays under nginx's 5s proxy_read_timeout.
+      timeout: 1s

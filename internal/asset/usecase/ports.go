@@ -15,4 +15,15 @@ type PortfolioRepository interface {
 	Get(ctx context.Context, userID string) (*domain.Portfolio, error)
 	// Create is idempotent: creating an existing portfolio is a no-op.
 	Create(ctx context.Context, userID string) error
+	// UpsertHolding sets the quantity held of symbol.
+	UpsertHolding(ctx context.Context, userID, symbol string, qty float64) error
+	// DeleteHolding returns ErrNotFound when the user does not hold symbol.
+	DeleteHolding(ctx context.Context, userID, symbol string) error
+	// ListHoldings returns the user's holdings ordered by symbol.
+	ListHoldings(ctx context.Context, userID string) ([]domain.Holding, error)
+}
+
+// PriceSource supplies current quotes. Symbols without a quote are omitted.
+type PriceSource interface {
+	Quotes(ctx context.Context, symbols []string) ([]domain.Quote, error)
 }

@@ -14,4 +14,7 @@ type Deps struct {
 func RegisterRoutes(mux *http.ServeMux, d Deps) {
 	mux.Handle("GET /assets", d.Auth(http.HandlerFunc(d.Assets.List)))
 	mux.Handle("GET /portfolio", d.Auth(http.HandlerFunc(d.Portfolio.Get)))
+	mux.Handle("GET /portfolio/value", d.Auth(http.HandlerFunc(d.Portfolio.Value)))
+	mux.Handle("PUT /portfolio/holdings/{symbol}", d.Auth(http.HandlerFunc(d.Portfolio.SetHolding)))
+	mux.Handle("DELETE /portfolio/holdings/{symbol}", d.Auth(http.HandlerFunc(d.Portfolio.RemoveHolding)))
 }
