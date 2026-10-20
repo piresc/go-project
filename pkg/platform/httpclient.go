@@ -37,6 +37,13 @@ type HTTPClientSettings struct {
 	// OpenTimeout is how long the breaker stays open before a trial call.
 	// Defaults to 30s.
 	OpenTimeout time.Duration `yaml:"open_timeout" mapstructure:"open_timeout"`
+	// APIKey is sent on every request in APIKeyHeader. Empty sends no key.
+	// Override it with SERVICE_HTTP_CLIENTS_<NAME>_API_KEY; the key must be
+	// present in the YAML (api_key: "") for the override to apply.
+	APIKey string `yaml:"api_key" mapstructure:"api_key"`
+	// APIKeyHeader names the header that carries APIKey. Defaults to
+	// "X-API-Key".
+	APIKeyHeader string `yaml:"api_key_header" mapstructure:"api_key_header"`
 }
 
 // HTTPClient is a gokit httpclient behind a circuit breaker. One GetJSON call
@@ -58,8 +65,14 @@ func newHTTPClient(name string, s HTTPClientSettings, tracer tracing.Tracer) *HT
 		s.OpenTimeout = defaultOpenTimeout
 	}
 	return &HTTPClient{
-		name:   name,
-		client: httpclient.NewClient(httpclient.Config{BaseURL: s.BaseURL, Timeout: s.Timeout, Tracer: tracer}),
+		name: name,
+		client: httpclient.NewClient(httpclient.Config{
+			BaseURL:      s.BaseURL,
+			Timeout:      s.Timeout,
+			APIKey:       s.APIKey,
+			APIKeyHeader: s.APIKeyHeader,
+			Tracer:       tracer,
+		}),
 		breaker: gobreaker.NewCircuitBreaker[[]byte](gobreaker.Settings{
 			Name:    name,
 			Timeout: s.OpenTimeout,

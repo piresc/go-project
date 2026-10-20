@@ -60,7 +60,7 @@ Design rules:
 | `Events` | `nats.enabled` | JetStream: streams and consumers from `service.events`; JSON `Publish(ctx, subject, v, msgID)` with dedup, `Subscribe(consumer, handler)` |
 | `Tasks` | `asynq.enabled` (needs `redis.db: 0`) | asynq `Enqueue`, `Handle(type, fn)`, cron schedules from `service.tasks.schedules` |
 | `Locker` | Redis configured; `service.lock.ttl` (default 30s) | gokit redislock, key prefix = service name, no retry |
-| `HTTPClient(name)` | `service.http_clients.<name>` (`base_url`, `timeout`, `failure_threshold`, `open_timeout`) | gokit httpclient (up to 3 attempts, trace headers) behind a circuit breaker; `GetJSON` unwraps the gokit `response.Success` envelope and returns a `*httpclient.APIError` (status, code, message) for 4xx/5xx and `success:false` bodies; returns `ErrUnavailable` while the breaker is open |
+| `HTTPClient(name)` | `service.http_clients.<name>` (`base_url`, `timeout`, `failure_threshold`, `open_timeout`, `api_key`, `api_key_header`) | gokit httpclient (up to 3 attempts, trace headers) behind a circuit breaker; `GetJSON` unwraps the gokit `response.Success` envelope and returns a `*httpclient.APIError` (status, code, message) for 4xx/5xx and `success:false` bodies; returns `ErrUnavailable` while the breaker is open |
 
 Scheduled tasks: each schedule fires on wall-clock-aligned ticks and enqueues with TaskID `<task>:<tick unix>`, `Retention(interval)` and `MaxRetry(0)`. N replicas compute the same ID, so each tick runs once; a failed run waits for the next tick. Every scheduled task needs a `Handle` before `Run`. Every consumer in `service.events.consumers` needs a `Subscribe` before `Run`, otherwise `Run` fails.
 
@@ -119,7 +119,7 @@ Follow these steps; the examples are real code to copy.
    - Task: `handler/task/`, registered with `Tasks.Handle`. Example: `internal/price/handler/task/refresh.go`.
    - Needs another service's data: add a gateway (see "Service calls (HTTP)") plus a `service.http_clients.<name>` entry. Never read that service's schema or Redis DB. Example: `internal/asset/gateway/price`.
 6. **One wiring line** in `internal/<svc>/app/app.go`: build the adapter and use case, then register the handler (`app.Events.Subscribe(...)`, `app.Tasks.Handle(...)`, `httptransport.RegisterRoutes(...)`). Examples: `internal/asset/app/app.go` (events, migrations), `internal/price/app/app.go` (tasks, lock, `HTTPClient`). Add the needed dependency to `platform.Require`.
-7. **Config keys**: in `config/local/<svc>.yaml` and `config/production/<svc>.yaml`: `nats.enabled` plus `service.events` (streams, consumers), `asynq.enabled` plus `service.tasks.schedules`, `service.http_clients.<name>`, `service.lock.ttl`, `service.auth.fail_open`, `service.auth.skip_revocation_check`, `auth.public_key_path`. Service-specific keys go in `internal/<svc>/app/config.go`.
+7. **Config keys**: in `config/local/<svc>.yaml` and `config/production/<svc>.yaml`: `nats.enabled` plus `service.events` (streams, consumers), `asynq.enabled` plus `service.tasks.schedules`, `service.http_clients.<name>` (`base_url`, `api_key`, `api_key_header`; an env override such as `SERVICE_HTTP_CLIENTS_<NAME>_API_KEY` needs the key present in the YAML, e.g. `api_key: ""`), `service.lock.ttl`, `service.auth.fail_open`, `service.auth.skip_revocation_check`, `auth.public_key_path`. Service-specific keys go in `internal/<svc>/app/config.go`.
 
 ## Event Bus (NATS JetStream)
 

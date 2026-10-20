@@ -157,8 +157,8 @@ github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJw
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
 github.com/pelletier/go-toml/v2 v2.2.4 h1:mye9XuhQ6gvn5h28+VilKrrPoQVanw5PMw/TB0t5Ec4=
 github.com/pelletier/go-toml/v2 v2.2.4/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
-github.com/piresc/gokit v0.6.0 h1:l84hhFrpaNLvTyCMof/asIFzEWKyFTCHugwP1ulpvto=
-github.com/piresc/gokit v0.6.0/go.mod h1:E2McQWAa7+oIZuzLcGoA3ccKS2Az3ddds/wWxWL99Oc=
+github.com/piresc/gokit v0.6.1 h1:av9n7+8CDoHVm4h1gCiXvMuM+leP8QcaL7S1ZFD4hNY=
+github.com/piresc/gokit v0.6.1/go.mod h1:E2McQWAa7+oIZuzLcGoA3ccKS2Az3ddds/wWxWL99Oc=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=

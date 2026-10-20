@@ -64,6 +64,29 @@ func TestHTTPClient_4xxDoesNotTrip(t *testing.T) {
 	}
 }
 
+func TestHTTPClientAPIKeyHeader(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Finnhub-Token")
+		_, _ = w.Write([]byte(`{"c":1.5}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := newHTTPClient("market", HTTPClientSettings{BaseURL: srv.URL, APIKey: "k", APIKeyHeader: "X-Finnhub-Token"}, nil)
+
+	var out struct {
+		C float64 `json:"c"`
+	}
+	if err := c.GetJSON(context.Background(), "/quote", &out); err != nil {
+		t.Fatalf("GetJSON: %v", err)
+	}
+	if got != "k" {
+		t.Fatalf("X-Finnhub-Token = %q, want k", got)
+	}
+	if out.C != 1.5 {
+		t.Fatalf("decoded c = %v, want 1.5", out.C)
+	}
+}
+
 func TestHTTPClient_DecodesJSON(t *testing.T) {
 	srv, _ := countingServer(t, http.StatusOK, `{"quotes":[{"symbol":"A"}]}`)
 	c := newHTTPClient("market", HTTPClientSettings{BaseURL: srv.URL}, nil)
